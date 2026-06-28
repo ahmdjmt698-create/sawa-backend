@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # الخيارات: tiny | base | small | medium | large-v3
     # tiny  → سريع جداً، دقة أقل (للتطوير)
     # large-v3 → أبطأ، دقة عالية جداً (للإنتاج)
-    WHISPER_MODEL: str = "small"  # غيّر حسب حاجتك
+    WHISPER_MODEL: str = "base"  # غيّر حسب حاجتك
     WHISPER_DEVICE: str = "cpu"          # غيّر لـ "cuda" إذا عندك GPU
     WHISPER_COMPUTE_TYPE: str = "int8"   # int8 = أسرع على الـ CPU
 

@@ -34,10 +34,10 @@ if frontend_url:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins     = ALLOWED_ORIGINS,
-    allow_credentials = True,
-    allow_methods     = ["*"],
-    allow_headers     = ["*"],
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ── Static Files ──────────────────────────────────────
@@ -45,15 +45,22 @@ os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 app.mount("/media", StaticFiles(directory=settings.UPLOAD_DIR), name="media")
 
 # ── Routers ───────────────────────────────────────────
-app.include_router(auth.router,        prefix="/api/auth",        tags=["Auth"])
-app.include_router(videos.router,      prefix="/api/videos",      tags=["Videos"])
-app.include_router(transcripts.router, prefix="/api/transcripts", tags=["Transcripts"])
-app.include_router(payments.router,    prefix="/api/payments",    tags=["Payments"])
-app.include_router(search.router,      prefix="/api/search",      tags=["Search"])
+app.include_router(auth.router,        prefix="/api/auth",
+                   tags=["Auth"])
+app.include_router(videos.router,      prefix="/api/videos",
+                   tags=["Videos"])
+app.include_router(transcripts.router,
+                   prefix="/api/transcripts", tags=["Transcripts"])
+app.include_router(payments.router,
+                   prefix="/api/payments",    tags=["Payments"])
+app.include_router(search.router,      prefix="/api/search",
+                   tags=["Search"])
+
 
 @app.get("/")
 def root():
     return {"message": "سوى API 🎙️", "status": "ok"}
+
 
 @app.get("/health")
 def health():

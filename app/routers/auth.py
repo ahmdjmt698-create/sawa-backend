@@ -1,15 +1,16 @@
 """
 مسارات المصادقة — تسجيل + دخول
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
+from app.limiter import limiter
 
 from app.database import get_db, User
-from app.auth import hash_password, verify_password, create_access_token
+from app.auth import hash_password, verify_password, create_access_token, require_auth
 
-router = APIRouter()
+router  = APIRouter()
 
 
 # ── Schemas ───────────────────────────────────────────
@@ -37,7 +38,8 @@ class TokenResponse(BaseModel):
 #  POST /api/auth/register
 # ══════════════════════════════════════════════════════
 @router.post("/register", response_model=TokenResponse, status_code=201)
-def register(data: RegisterRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/hour")
+def register(request: Request, data: RegisterRequest, db: Session = Depends(get_db)):
     """تسجيل مستخدم جديد"""
 
     # تحقق أن الإيميل غير مستخدم
@@ -68,7 +70,9 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
 #  POST /api/auth/login
 # ══════════════════════════════════════════════════════
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("5/minute")              # حماية من هجمات القوة الغاشمة
 def login(
+    request: Request,
     form: OAuth2PasswordRequestForm = Depends(),
     db:   Session                   = Depends(get_db),
 ):
@@ -92,8 +96,6 @@ def login(
 #  GET /api/auth/me
 # ══════════════════════════════════════════════════════
 @router.get("/me", response_model=UserResponse)
-def get_me(
-    current_user = Depends(__import__("app.auth", fromlist=["require_auth"]).require_auth),
-):
+def get_me(current_user = Depends(require_auth)):
     """بيانات المستخدم الحالي"""
     return current_user

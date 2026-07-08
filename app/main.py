@@ -1,9 +1,12 @@
 """
 سوى — Backend (Production Ready)
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from app.limiter import limiter
 import os
 
 from app.database import engine, Base
@@ -12,6 +15,9 @@ from app.config import settings
 
 Base.metadata.create_all(bind=engine)
 
+# ── Rate Limiter (shared across routers) ─────────────
+# المثيل الوحيد معرّف في app/limiter.py — لا تُنشئ مثيلاً جديداً هنا
+
 app = FastAPI(
     title="Sawa سوى",
     description="بديل Loom العربي — API",
@@ -19,6 +25,9 @@ app = FastAPI(
     docs_url="/docs" if os.getenv("ENVIRONMENT") != "production" else None,
     redoc_url=None,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── CORS ─────────────────────────────────────────────
 ALLOWED_ORIGINS = [
@@ -34,15 +43,16 @@ if frontend_url:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,          # ✅ FIX: was hardcoded ["*"]
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
-# ── Static Files ──────────────────────────────────────
+# ── Upload Dir (ensure exists) ────────────────────────
+# NOTE: Static file mount removed — files are served through the
+# authenticated /api/videos/{id}/stream endpoint instead.
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-app.mount("/media", StaticFiles(directory=settings.UPLOAD_DIR), name="media")
 
 # ── Routers ───────────────────────────────────────────
 app.include_router(auth.router,        prefix="/api/auth",

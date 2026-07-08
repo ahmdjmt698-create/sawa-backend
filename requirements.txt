@@ -14,3 +14,4 @@ python-docx
 httpx
 psycopg2-binary
 soundfile
+slowapi

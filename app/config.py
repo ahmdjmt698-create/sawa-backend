@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     WHISPER_COMPUTE_TYPE: str = "int8"   # int8 = أسرع على الـ CPU
 
     # ── المصادقة ─────────────────────────────────────
-    SECRET_KEY: str = "غير-هذا-المفتاح-في-الإنتاج-حتماً"
+    SECRET_KEY: str                              # مطلوب — لا قيمة افتراضية (يُحدَّد عبر .env أو متغيرات البيئة)
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # أسبوع
 

@@ -4,7 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.limiter import limiter
 
 from app.database import get_db, User
@@ -14,15 +14,29 @@ router  = APIRouter()
 
 
 # ── Schemas ───────────────────────────────────────────
+# الحد الأقصى لـ bcrypt بالبايت — الأحرف العربية تأخذ بايتين لكل حرف
+_BCRYPT_MAX_BYTES = 72
+_PASSWORD_MIN_CHARS = 8
+
+
 class RegisterRequest(BaseModel):
     name:     str
     email:    EmailStr
-    password: str = Field(
-        ...,
-        min_length=8,
-        max_length=72,
-        description="كلمة المرور يجب أن تكون بين 8 و72 حرفاً",
-    )
+    # min_length=8 يُرفض مبكراً (تحقق سريع بالأحرف) قبل حساب البايتات
+    password: str = Field(..., min_length=_PASSWORD_MIN_CHARS)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_bytes(cls, v: str) -> str:
+        """bcrypt يقيس الحد الأقصى بالبايت لا بالأحرف.
+        الأحرف العربية = 2 بايت، بعض الإيموجي = 4 بايت.
+        """
+        if len(v.encode("utf-8")) > _BCRYPT_MAX_BYTES:
+            raise ValueError(
+                "كلمة المرور طويلة جداً — الحد الأقصى 72 بايت "
+                "(الأحرف العربية تُحسب بايتين لكل حرف)"
+            )
+        return v
 
 class UserResponse(BaseModel):
     id:    str
@@ -84,7 +98,12 @@ def login(
     """تسجيل الدخول بالإيميل وكلمة المرور"""
     user = db.query(User).filter(User.email == form.username).first()
 
-    if not user or not verify_password(form.password, user.hashed_password):
+    # bcrypt يقطع الإدخال عند 72 بايت داخلياً عند التحقق.
+    # نقوم بنفس القطع هنا صراحةً حتى لا تتعطل passlib
+    # مع كلمات المرور الطويلة جداً، ولضمان التطابق الصحيح.
+    raw_password = form.password.encode("utf-8")[:_BCRYPT_MAX_BYTES].decode("utf-8", errors="ignore")
+
+    if not user or not verify_password(raw_password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="إيميل أو كلمة مرور خاطئة",

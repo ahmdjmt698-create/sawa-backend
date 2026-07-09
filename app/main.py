@@ -37,16 +37,21 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     يُعيد رسائل خطأ عربية مخصصة لأخطاء التحقق الشائعة.
     الأخطاء الأخرى تُعاد بشكلها الافتراضي (مصفوفة pydantic).
     """
-    PASSWORD_LENGTH_TYPES = {"string_too_short", "string_too_long"}
+    # أنواع أخطاء طول كلمة المرور:
+    #   string_too_short / string_too_long → من Field(min_length=...) الأحرف
+    #   value_error                        → من field_validator (فحص البايتات)
+    PASSWORD_ERROR_TYPES = {"string_too_short", "string_too_long", "value_error"}
     for err in exc.errors():
-        # loc مثل: ('body', 'password') أو ('body', 'password', ...)
-        loc  = err.get("loc", ())
+        loc   = err.get("loc", ())
         etype = err.get("type", "")
-        if "password" in loc and etype in PASSWORD_LENGTH_TYPES:
-            return JSONResponse(
-                status_code=422,
-                content={"detail": "كلمة المرور يجب أن تكون بين 8 و72 حرفاً"},
-            )
+        if "password" in loc and etype in PASSWORD_ERROR_TYPES:
+            # value_error يحمل الرسالة العربية مباشرة في ctx["error"]
+            if etype == "value_error":
+                ctx_msg = str(err.get("ctx", {}).get("error", ""))
+                detail  = ctx_msg if ctx_msg else "كلمة المرور طويلة جداً"
+            else:
+                detail = "كلمة المرور يجب أن تكون 8 أحرف على الأقل"
+            return JSONResponse(status_code=422, content={"detail": detail})
     # fallback: جميع أخطاء التحقق الأخرى تُعاد بشكلها الافتراضي
     return JSONResponse(
         status_code=422,

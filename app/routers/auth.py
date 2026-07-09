@@ -4,7 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from app.limiter import limiter
 
 from app.database import get_db, User
@@ -17,7 +17,12 @@ router  = APIRouter()
 class RegisterRequest(BaseModel):
     name:     str
     email:    EmailStr
-    password: str
+    password: str = Field(
+        ...,
+        min_length=8,
+        max_length=72,
+        description="كلمة المرور يجب أن تكون بين 8 و72 حرفاً",
+    )
 
 class UserResponse(BaseModel):
     id:    str

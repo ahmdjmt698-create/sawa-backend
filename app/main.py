@@ -2,6 +2,8 @@
 سوى — Backend (Production Ready)
 """
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -28,6 +30,28 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    يُعيد رسائل خطأ عربية مخصصة لأخطاء التحقق الشائعة.
+    الأخطاء الأخرى تُعاد بشكلها الافتراضي (مصفوفة pydantic).
+    """
+    PASSWORD_LENGTH_TYPES = {"string_too_short", "string_too_long"}
+    for err in exc.errors():
+        # loc مثل: ('body', 'password') أو ('body', 'password', ...)
+        loc  = err.get("loc", ())
+        etype = err.get("type", "")
+        if "password" in loc and etype in PASSWORD_LENGTH_TYPES:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": "كلمة المرور يجب أن تكون بين 8 و72 حرفاً"},
+            )
+    # fallback: جميع أخطاء التحقق الأخرى تُعاد بشكلها الافتراضي
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
 
 # ── CORS ─────────────────────────────────────────────
 ALLOWED_ORIGINS = [

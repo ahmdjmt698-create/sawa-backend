@@ -37,3 +37,9 @@ uploads/
 # Logs
 *.log
 .venv/" > .gitignore
+uploads/
+storage/
+*.mp4
+*.mp3
+*.wav
+*.m4a

@@ -1,125 +1,84 @@
 """
-مسارات المصادقة — تسجيل + دخول
+نظام المصادقة — JWT + تشفير كلمات المرور (bcrypt مباشرة، بدون passlib)
 """
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.security import OAuth2PasswordRequestForm
+from datetime import datetime, timedelta
+from typing import Optional
+
+import bcrypt
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr, Field, field_validator
-from app.limiter import limiter
 
+from app.config import settings
 from app.database import get_db, User
-from app.auth import hash_password, verify_password, create_access_token, require_auth
 
-router  = APIRouter()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
-
-# ── Schemas ───────────────────────────────────────────
-# الحد الأقصى لـ bcrypt بالبايت — الأحرف العربية تأخذ بايتين لكل حرف
+# الحد الأقصى لطول كلمة المرور بالبايتات (bcrypt يقصر عند 72)
 _BCRYPT_MAX_BYTES = 72
-_PASSWORD_MIN_CHARS = 8
 
 
-class RegisterRequest(BaseModel):
-    name:     str
-    email:    EmailStr
-    # min_length=8 يُرفض مبكراً (تحقق سريع بالأحرف) قبل حساب البايتات
-    password: str = Field(..., min_length=_PASSWORD_MIN_CHARS)
-
-    @field_validator("password")
-    @classmethod
-    def validate_password_bytes(cls, v: str) -> str:
-        """bcrypt يقيس الحد الأقصى بالبايت لا بالأحرف.
-        الأحرف العربية = 2 بايت، بعض الإيموجي = 4 بايت.
-        """
-        if len(v.encode("utf-8")) > _BCRYPT_MAX_BYTES:
-            raise ValueError(
-                "كلمة المرور طويلة جداً — الحد الأقصى 72 بايت "
-                "(الأحرف العربية تُحسب بايتين لكل حرف)"
-            )
-        return v
-
-class UserResponse(BaseModel):
-    id:    str
-    name:  str
-    email: str
-    plan:  str
-
-    class Config:
-        from_attributes = True
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type:   str = "bearer"
-    user:         UserResponse
+def _prepare(password: str) -> bytes:
+    """تحويل كلمة المرور إلى bytes وقصّها عند 72 بايت (حد bcrypt)."""
+    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
 
 
 # ══════════════════════════════════════════════════════
-#  POST /api/auth/register
+#  كلمات المرور
 # ══════════════════════════════════════════════════════
-@router.post("/register", response_model=TokenResponse, status_code=201)
-@limiter.limit("10/hour")
-def register(request: Request, data: RegisterRequest, db: Session = Depends(get_db)):
-    """تسجيل مستخدم جديد"""
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(_prepare(password), bcrypt.gensalt()).decode("utf-8")
 
-    # تحقق أن الإيميل غير مستخدم
-    if db.query(User).filter(User.email == data.email).first():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="هذا الإيميل مسجل مسبقاً",
-        )
 
-    # أنشئ المستخدم
-    user = User(
-        name            = data.name,
-        email           = data.email,
-        hashed_password = hash_password(data.password),
+def verify_password(plain: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(_prepare(plain), hashed.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
+
+
+# ══════════════════════════════════════════════════════
+#  JWT Tokens
+# ══════════════════════════════════════════════════════
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (
+        expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
-    token = create_access_token({"sub": user.id})
-    return TokenResponse(
-        access_token=token,
-        user=UserResponse.model_validate(user),
-    )
+
+def decode_token(token: str) -> Optional[dict]:
+    try:
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except JWTError:
+        return None
 
 
 # ══════════════════════════════════════════════════════
-#  POST /api/auth/login
+#  Dependencies
 # ══════════════════════════════════════════════════════
-@router.post("/login", response_model=TokenResponse)
-@limiter.limit("5/minute")              # حماية من هجمات القوة الغاشمة
-def login(
-    request: Request,
-    form: OAuth2PasswordRequestForm = Depends(),
-    db:   Session                   = Depends(get_db),
-):
-    """تسجيل الدخول بالإيميل وكلمة المرور"""
-    user = db.query(User).filter(User.email == form.username).first()
+def get_current_user(
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    if not token:
+        return None
+    payload = decode_token(token)
+    if not payload:
+        return None
+    return db.query(User).filter(User.id == payload.get("sub")).first()
 
-    # bcrypt يقطع الإدخال عند 72 بايت داخلياً عند التحقق.
-    # نقوم بنفس القطع هنا صراحةً حتى لا تتعطل passlib
-    # مع كلمات المرور الطويلة جداً، ولضمان التطابق الصحيح.
-    raw_password = form.password.encode("utf-8")[:_BCRYPT_MAX_BYTES].decode("utf-8", errors="ignore")
 
-    if not user or not verify_password(raw_password, user.hashed_password):
+def require_auth(
+    current_user: Optional[User] = Depends(get_current_user),
+) -> User:
+    if not current_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="إيميل أو كلمة مرور خاطئة",
+            detail="يجب تسجيل الدخول أولاً",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-
-    token = create_access_token({"sub": user.id})
-    return TokenResponse(
-        access_token=token,
-        user=UserResponse.model_validate(user),
-    )
-
-
-# ══════════════════════════════════════════════════════
-#  GET /api/auth/me
-# ══════════════════════════════════════════════════════
-@router.get("/me", response_model=UserResponse)
-def get_me(current_user = Depends(require_auth)):
-    """بيانات المستخدم الحالي"""
     return current_user

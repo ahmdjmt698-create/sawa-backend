@@ -1,0 +1,220 @@
+diff --git a/.env.example b/.env.example
+index 8bb07c8..8ae0434 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,19 +1,16 @@
+ # ── قاعدة البيانات ──────────────────────────────────
+-# SQLite للتطوير (لا تحتاج أي إعداد)
++# SQLite للتطوير
+ DATABASE_URL=sqlite:///./sawa.db
+-
+-# PostgreSQL للإنتاج (علّق على السطر أعلاه وشيّل التعليق من هنا)
++# PostgreSQL للإنتاج
+ # DATABASE_URL=postgresql://user:password@localhost/sawa_db
+ 
+ # ── نموذج Whisper ────────────────────────────────────
+-# tiny=سريع جداً (للتطوير) | base | small | medium | large-v3 (للإنتاج)
+ WHISPER_MODEL=base
+ WHISPER_DEVICE=cpu
+ WHISPER_COMPUTE_TYPE=int8
+ 
+ # ── الأمان ───────────────────────────────────────────
+-# ولّد قيمة آمنة بهذا الأمر ثم ضعها هنا:
+-# python -c "import secrets; print(secrets.token_hex(32))"
++# ولّد قيمة آمنة: python -c "import secrets; print(secrets.token_hex(32))"
+ SECRET_KEY=CHANGE_ME_generate_with_secrets_token_hex_32
+ 
+ # ── التخزين ──────────────────────────────────────────
+@@ -25,31 +22,22 @@ FREE_MAX_DURATION_SECONDS=300
+ PRO_MAX_DURATION_SECONDS=3600
+ 
+ # ── الذكاء الاصطناعي ─────────────────────────────────
+-# احصل عليه من: console.anthropic.com
++# console.anthropic.com
+ ANTHROPIC_API_KEY=sk-ant-...
+ 
+ # ── تحديد المتحدثين (اختياري) ───────────────────────
+-# احصل عليه من: huggingface.co/settings/tokens
+-# ثم اقبل شروط النموذج في: huggingface.co/pyannote/speaker-diarization-3.1
+-HUGGINGFACE_TOKEN=hf_...
+-
+-# ── الذكاء الاصطناعي ─────────────────────────────────
+-# احصل عليه من: console.anthropic.com
+-ANTHROPIC_API_KEY=sk-ant-...
+-
+-# ── تحديد المتحدثين (اختياري) ────────────────────────
+-# احصل عليه من: huggingface.co/settings/tokens
+-# ثم اقبل شروط: huggingface.co/pyannote/speaker-diarization-3.1
++# huggingface.co/settings/tokens ثم اقبل شروط:
++# huggingface.co/pyannote/speaker-diarization-3.1
+ HUGGINGFACE_TOKEN=hf_...
+ 
+ # ── بوابة الدفع Cryptomus ────────────────────────────
+-# احصل عليهم من: cryptomus.com/cabinet/merchant
++# cryptomus.com/cabinet/merchant
+ CRYPTOMUS_API_KEY=
+ CRYPTOMUS_MERCHANT_ID=
+ 
+-# ── روابط التطبيق ───────────────────────────────────
++# ── روابط التطبيق ────────────────────────────────────
+ FRONTEND_URL=http://localhost:3000
+ BACKEND_URL=http://localhost:8000
+ 
+-# ── البيئة ──────────────────────────────────────────
++# ── البيئة ───────────────────────────────────────────
+ ENVIRONMENT=development
+diff --git a/app/auth.py b/app/auth.py
+index a0fe816..2321872 100644
+--- a/app/auth.py
++++ b/app/auth.py
+@@ -1,31 +1,41 @@
+ """
+-نظام المصادقة — JWT + تشفير كلمات المرور
++نظام المصادقة — JWT + تشفير كلمات المرور (bcrypt مباشرة، بدون passlib)
+ """
+ from datetime import datetime, timedelta
+ from typing import Optional
+ 
++import bcrypt
+ from fastapi import Depends, HTTPException, status
+ from fastapi.security import OAuth2PasswordBearer
+ from jose import JWTError, jwt
+-from passlib.context import CryptContext
+ from sqlalchemy.orm import Session
+ 
+ from app.config import settings
+ from app.database import get_db, User
+ 
+-# ── إعداد التشفير ────────────────────────────────────
+-pwd_context    = CryptContext(schemes=["bcrypt"], deprecated="auto")
+-oauth2_scheme  = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
++oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
++
++# الحد الأقصى لطول كلمة المرور بالبايتات (bcrypt يقصر عند 72)
++_BCRYPT_MAX_BYTES = 72
++
++
++def _prepare(password: str) -> bytes:
++    """تحويل كلمة المرور إلى bytes وقصّها عند 72 بايت (حد bcrypt)."""
++    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
+ 
+ 
+ # ══════════════════════════════════════════════════════
+ #  كلمات المرور
+ # ══════════════════════════════════════════════════════
+ def hash_password(password: str) -> str:
+-    return pwd_context.hash(password)
++    return bcrypt.hashpw(_prepare(password), bcrypt.gensalt()).decode("utf-8")
++
+ 
+ def verify_password(plain: str, hashed: str) -> bool:
+-    return pwd_context.verify(plain, hashed)
++    try:
++        return bcrypt.checkpw(_prepare(plain), hashed.encode("utf-8"))
++    except (ValueError, TypeError):
++        return False
+ 
+ 
+ # ══════════════════════════════════════════════════════
+@@ -33,7 +43,7 @@ def verify_password(plain: str, hashed: str) -> bool:
+ # ══════════════════════════════════════════════════════
+ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+     to_encode = data.copy()
+-    expire    = datetime.utcnow() + (
++    expire = datetime.utcnow() + (
+         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+     )
+     to_encode.update({"exp": expire})
+@@ -54,20 +64,17 @@ def get_current_user(
+     token: Optional[str] = Depends(oauth2_scheme),
+     db: Session = Depends(get_db),
+ ) -> Optional[User]:
+-    """يُرجع المستخدم الحالي — أو None إذا لم يكن مسجلاً دخوله"""
+     if not token:
+         return None
+     payload = decode_token(token)
+     if not payload:
+         return None
+-    user = db.query(User).filter(User.id == payload.get("sub")).first()
+-    return user
++    return db.query(User).filter(User.id == payload.get("sub")).first()
+ 
+ 
+ def require_auth(
+     current_user: Optional[User] = Depends(get_current_user),
+ ) -> User:
+-    """يُرجع المستخدم أو يرفع خطأ 401 إذا لم يكن مسجلاً"""
+     if not current_user:
+         raise HTTPException(
+             status_code=status.HTTP_401_UNAUTHORIZED,
+diff --git a/app/config.py b/app/config.py
+index aa5da3b..03f7b84 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -11,34 +11,39 @@ class Settings(BaseSettings):
+ 
+     # ── التخزين ──────────────────────────────────────
+     UPLOAD_DIR: str = "uploads"
+-    MAX_FILE_SIZE_MB: int = 500          # حد أقصى 500 ميجا للفيديو
++    MAX_FILE_SIZE_MB: int = 500
+     ALLOWED_EXTENSIONS: list = ["mp4", "webm", "mov", "mp3", "wav", "m4a"]
+ 
+     # ── نموذج Whisper ────────────────────────────────
+-    # الخيارات: tiny | base | small | medium | large-v3
+-    # tiny  → سريع جداً، دقة أقل (للتطوير)
+-    # large-v3 → أبطأ، دقة عالية جداً (للإنتاج)
+-    WHISPER_MODEL: str = "base"  # غيّر حسب حاجتك
+-    WHISPER_DEVICE: str = "cpu"          # غيّر لـ "cuda" إذا عندك GPU
+-    WHISPER_COMPUTE_TYPE: str = "int8"   # int8 = أسرع على الـ CPU
++    WHISPER_MODEL: str = "base"
++    WHISPER_DEVICE: str = "cpu"
++    WHISPER_COMPUTE_TYPE: str = "int8"
+ 
+     # ── المصادقة ─────────────────────────────────────
+-    SECRET_KEY: str                              # مطلوب — لا قيمة افتراضية (يُحدَّد عبر .env أو متغيرات البيئة)
++    SECRET_KEY: str
+     ALGORITHM: str = "HS256"
+-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # أسبوع
++    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+ 
+     # ── حدود الخطط ──────────────────────────────────
+     FREE_MAX_VIDEOS: int = 25
+-    FREE_MAX_DURATION_SECONDS: int = 300   # 5 دقائق
+-    PRO_MAX_DURATION_SECONDS: int = 3600   # ساعة كاملة
+-    ANTHROPIC_API_KEY: Optional[str] = None  # مفتاح Anthropic API (اختياري)
+-    # معرف تاجر Cryptomus (اختياري)
++    FREE_MAX_DURATION_SECONDS: int = 300
++    PRO_MAX_DURATION_SECONDS: int = 3600
++
++    # ── مفاتيح خارجية ────────────────────────────────
++    ANTHROPIC_API_KEY: Optional[str] = None
++    HUGGINGFACE_TOKEN: Optional[str] = None
+     CRYPTOMUS_MERCHANT_ID: Optional[str] = None
+-    CRYPTOMUS_API_KEY: Optional[str] = None  # مفتاح Cryptomus API (اختياري)
++    CRYPTOMUS_API_KEY: Optional[str] = None
++
++    # ── روابط التطبيق والبيئة ────────────────────────
++    FRONTEND_URL: str = "http://localhost:3000"
++    BACKEND_URL: str = "http://localhost:8000"
++    ENVIRONMENT: str = "development"
+ 
+     class Config:
+         env_file = ".env"
+         env_file_encoding = "utf-8"
++        extra = "ignore"   # ← يتجاهل أي متغيرات إضافية في .env بدل رفع خطأ
+ 
+ 
+ settings = Settings()
+diff --git a/requirements.txt b/requirements.txt
+index 5d51745..545dcb3 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -5,7 +5,7 @@ sqlalchemy
+ pydantic[email]
+ pydantic-settings
+ python-jose[cryptography]
+-passlib[bcrypt]
++bcrypt==4.2.0
+ faster-whisper
+ numpy
+ aiofiles

@@ -11,34 +11,39 @@ class Settings(BaseSettings):
 
     # ── التخزين ──────────────────────────────────────
     UPLOAD_DIR: str = "uploads"
-    MAX_FILE_SIZE_MB: int = 500          # حد أقصى 500 ميجا للفيديو
+    MAX_FILE_SIZE_MB: int = 500
     ALLOWED_EXTENSIONS: list = ["mp4", "webm", "mov", "mp3", "wav", "m4a"]
 
     # ── نموذج Whisper ────────────────────────────────
-    # الخيارات: tiny | base | small | medium | large-v3
-    # tiny  → سريع جداً، دقة أقل (للتطوير)
-    # large-v3 → أبطأ، دقة عالية جداً (للإنتاج)
-    WHISPER_MODEL: str = "base"  # غيّر حسب حاجتك
-    WHISPER_DEVICE: str = "cpu"          # غيّر لـ "cuda" إذا عندك GPU
-    WHISPER_COMPUTE_TYPE: str = "int8"   # int8 = أسرع على الـ CPU
+    WHISPER_MODEL: str = "base"
+    WHISPER_DEVICE: str = "cpu"
+    WHISPER_COMPUTE_TYPE: str = "int8"
 
     # ── المصادقة ─────────────────────────────────────
-    SECRET_KEY: str                              # مطلوب — لا قيمة افتراضية (يُحدَّد عبر .env أو متغيرات البيئة)
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # أسبوع
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
 
     # ── حدود الخطط ──────────────────────────────────
     FREE_MAX_VIDEOS: int = 25
-    FREE_MAX_DURATION_SECONDS: int = 300   # 5 دقائق
-    PRO_MAX_DURATION_SECONDS: int = 3600   # ساعة كاملة
-    ANTHROPIC_API_KEY: Optional[str] = None  # مفتاح Anthropic API (اختياري)
-    # معرف تاجر Cryptomus (اختياري)
+    FREE_MAX_DURATION_SECONDS: int = 300
+    PRO_MAX_DURATION_SECONDS: int = 3600
+
+    # ── مفاتيح خارجية ────────────────────────────────
+    ANTHROPIC_API_KEY: Optional[str] = None
+    HUGGINGFACE_TOKEN: Optional[str] = None
     CRYPTOMUS_MERCHANT_ID: Optional[str] = None
-    CRYPTOMUS_API_KEY: Optional[str] = None  # مفتاح Cryptomus API (اختياري)
+    CRYPTOMUS_API_KEY: Optional[str] = None
+
+    # ── روابط التطبيق والبيئة ────────────────────────
+    FRONTEND_URL: str = "http://localhost:3000"
+    BACKEND_URL: str = "http://localhost:8000"
+    ENVIRONMENT: str = "development"
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"   # ← يتجاهل أي متغيرات إضافية في .env بدل رفع خطأ
 
 
 settings = Settings()

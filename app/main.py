@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -31,6 +32,18 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+def _safe(obj):
+    """يحوّل أي قيمة bytes إلى نص عشان JSON ما ينكسر"""
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8", errors="replace")
+    if isinstance(obj, dict):
+        return {k: _safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_safe(v) for v in obj]
+    return obj
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """
@@ -40,22 +53,26 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     # أنواع أخطاء طول كلمة المرور:
     #   string_too_short / string_too_long → من Field(min_length=...) الأحرف
     #   value_error                        → من field_validator (فحص البايتات)
-    PASSWORD_ERROR_TYPES = {"string_too_short", "string_too_long", "value_error"}
+    PASSWORD_ERROR_TYPES = {"string_too_short",
+                            "string_too_long", "value_error"}
     for err in exc.errors():
-        loc   = err.get("loc", ())
+        loc = err.get("loc", ())
         etype = err.get("type", "")
         if "password" in loc and etype in PASSWORD_ERROR_TYPES:
             # value_error يحمل الرسالة العربية مباشرة في ctx["error"]
             if etype == "value_error":
                 ctx_msg = str(err.get("ctx", {}).get("error", ""))
-                detail  = ctx_msg if ctx_msg else "كلمة المرور طويلة جداً"
+                detail = ctx_msg if ctx_msg else "كلمة المرور طويلة جداً"
             else:
                 detail = "كلمة المرور يجب أن تكون 8 أحرف على الأقل"
             return JSONResponse(status_code=422, content={"detail": detail})
+
     # fallback: جميع أخطاء التحقق الأخرى تُعاد بشكلها الافتراضي
+    # (نمرر عبر _safe أولاً لتفادي انهيار json.dumps عند وجود bytes)
+    safe_errors = jsonable_encoder(_safe(exc.errors()))
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors()},
+        content={"detail": safe_errors},
     )
 
 # ── CORS ─────────────────────────────────────────────

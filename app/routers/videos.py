@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from app.limiter import limiter
 
 from app.database import get_db, Video, Transcript, TranscriptStatus, User
+from app.exceptions import APIException
 from app.auth import get_current_user, require_auth, hash_password, verify_password
 from app.config import settings
 from app.transcription import transcribe_audio, extract_audio_if_needed
@@ -283,7 +284,7 @@ def unlock_shared_video(
         raise HTTPException(400, "هذا الفيديو لا يتطلب كلمة مرور")
 
     if not verify_password(data.password, video.share_password_hash):
-        raise HTTPException(401, "كلمة المرور غير صحيحة", error_code="WRONG_PASSWORD")
+        raise APIException(401, "كلمة المرور غير صحيحة", error_code="WRONG_PASSWORD")
 
     from app.auth import create_access_token
     access_token = create_access_token(

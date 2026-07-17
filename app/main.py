@@ -10,6 +10,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.limiter import limiter
+from app.exceptions import APIException
 import os
 
 from app.database import engine, Base
@@ -61,6 +62,18 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     return JSONResponse(
         status_code=422,
         content={"detail": safe_errors, "error_code": "VALIDATION_ERROR"},
+    )
+
+
+@app.exception_handler(APIException)
+async def api_exception_handler(request: Request, exc: APIException):
+    content = {"detail": exc.detail}
+    if exc.error_code:
+        content["error_code"] = exc.error_code
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=content,
+        headers=exc.headers,
     )
 
 # ── CORS ─────────────────────────────────────────────

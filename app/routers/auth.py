@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
 from app.database import get_db, User, RefreshToken, PasswordResetOTP
+from app.exceptions import APIException
 from app.auth import (
     hash_password,
     verify_password,
@@ -146,7 +147,7 @@ def register(
     """
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
-        raise HTTPException(
+        raise APIException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="هذا البريد الإلكتروني مسجل مسبقاً",
             error_code="EMAIL_EXISTS",
@@ -181,13 +182,13 @@ def login(
     """
     user = db.query(User).filter(User.email == payload.email).first()
     if not user:
-        raise HTTPException(
+        raise APIException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="لا يوجد حساب بهذا البريد الإلكتروني",
             error_code="EMAIL_NOT_FOUND",
         )
     if not verify_password(payload.password, user.hashed_password):
-        raise HTTPException(
+        raise APIException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="كلمة المرور غير صحيحة",
             error_code="WRONG_PASSWORD",
@@ -234,7 +235,7 @@ def refresh_token(
     يُدير الدوران: يلغي القديم ويُصدر جديداً.
     """
     if not sawa_refresh:
-        raise HTTPException(status_code=401, detail="لا يوجد توكن تحديث",
+        raise APIException(status_code=401, detail="لا يوجد توكن تحديث",
                             error_code="TOKEN_EXPIRED")
 
     refresh_hash = hash_token(sawa_refresh)
@@ -247,7 +248,7 @@ def refresh_token(
     ).first()
 
     if not token_record:
-        raise HTTPException(status_code=401, detail="توكن التحديث غير صالح أو منتهي",
+        raise APIException(status_code=401, detail="توكن التحديث غير صالح أو منتهي",
                             error_code="TOKEN_EXPIRED")
 
     # دوران: ألغِ القديم وأصدر جديداً
@@ -256,7 +257,7 @@ def refresh_token(
 
     user = db.query(User).filter(User.id == token_record.user_id).first()
     if not user:
-        raise HTTPException(status_code=401, detail="المستخدم غير موجود",
+        raise APIException(status_code=401, detail="المستخدم غير موجود",
                             error_code="TOKEN_EXPIRED")
 
     _issue_tokens(response, user)
@@ -297,28 +298,28 @@ def update_password(
     db: Session = Depends(get_db),
 ):
     if not verify_password(data.current_password, current_user.hashed_password):
-        raise HTTPException(
+        raise APIException(
             status_code=401,
             detail="كلمة المرور الحالية غير صحيحة",
             error_code="WRONG_PASSWORD",
         )
 
     if len(data.new_password) < 8:
-        raise HTTPException(
+        raise APIException(
             status_code=422,
             detail="كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل وتحتوي على رقم",
             error_code="VALIDATION_ERROR",
         )
 
     if not any(c.isdigit() for c in data.new_password):
-        raise HTTPException(
+        raise APIException(
             status_code=422,
             detail="كلمة المرور الجديدة يجب أن تحتوي على رقم واحد على الأقل",
             error_code="VALIDATION_ERROR",
         )
 
     if verify_password(data.new_password, current_user.hashed_password):
-        raise HTTPException(
+        raise APIException(
             status_code=400,
             detail="كلمة المرور الجديدة مطابقة للقديمة — اختر كلمة مرور مختلفة",
             error_code="SAME_PASSWORD",
@@ -398,7 +399,7 @@ def verify_otp(
     )
 
     if not otp_record:
-        raise HTTPException(
+        raise APIException(
             status_code=400,
             detail="انتهت صلاحية الرمز، اطلب رمزاً جديداً",
             error_code="OTP_EXPIRED",
@@ -408,7 +409,7 @@ def verify_otp(
     db.commit()
 
     if otp_record.attempts > 5:
-        raise HTTPException(
+        raise APIException(
             status_code=429,
             detail="تجاوزت عدد المحاولات، اطلب رمزاً جديداً",
             error_code="OTP_MAX_ATTEMPTS",
@@ -416,7 +417,7 @@ def verify_otp(
 
     if not verify_password(data.otp, otp_record.otp_hash):
         remaining = 5 - otp_record.attempts
-        raise HTTPException(
+        raise APIException(
             status_code=400,
             detail=f"الرمز غير صحيح، تبقى {remaining} محاولات",
             error_code="OTP_INVALID",
@@ -443,7 +444,7 @@ def reset_password(
 ):
     payload = decode_token(data.reset_token)
     if not payload or payload.get("type") != "password_reset":
-        raise HTTPException(
+        raise APIException(
             status_code=400,
             detail="الرابط غير صالح أو منتهي",
             error_code="INVALID_TOKEN",
@@ -454,14 +455,14 @@ def reset_password(
         raise HTTPException(status_code=404, detail="المستخدم غير موجود")
 
     if len(data.new_password) < 8:
-        raise HTTPException(
+        raise APIException(
             status_code=422,
             detail="كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل",
             error_code="VALIDATION_ERROR",
         )
 
     if not any(c.isdigit() for c in data.new_password):
-        raise HTTPException(
+        raise APIException(
             status_code=422,
             detail="كلمة المرور الجديدة يجب أن تحتوي على رقم",
             error_code="VALIDATION_ERROR",

@@ -8,6 +8,7 @@ import hashlib
 
 from fastapi import Depends, HTTPException, status, Cookie, Request
 from fastapi.security import OAuth2PasswordBearer
+from app.exceptions import APIException
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
@@ -137,7 +138,7 @@ def require_auth(
 ) -> User:
     """يُرجع المستخدم أو يرفع خطأ 401 إذا لم يكن مسجلاً"""
     if not current_user:
-        raise HTTPException(
+        raise APIException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="يجب تسجيل الدخول أولاً",
             error_code="TOKEN_EXPIRED",

@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     # ── المصادقة ─────────────────────────────────────
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    COOKIE_SECURE: bool = False
 
     # ── حدود الخطط ──────────────────────────────────
     FREE_MAX_VIDEOS: int = 25
@@ -34,6 +36,17 @@ class Settings(BaseSettings):
     HUGGINGFACE_TOKEN: Optional[str] = None
     CRYPTOMUS_MERCHANT_ID: Optional[str] = None
     CRYPTOMUS_API_KEY: Optional[str] = None
+
+    # ── مزودي التفريغ ────────────────────────────────
+    TRANSCRIPTION_PROVIDER: str = "gemini"  # gemini | groq | local
+    GROQ_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: Optional[str] = None
+
+    # ── البريد الإلكتروني ───────────────────────────
+    MAIL_USERNAME: Optional[str] = None
+    MAIL_PASSWORD: Optional[str] = None
+    MAIL_FROM: Optional[str] = None
+    MAIL_SERVER: str = "smtp.gmail.com"
 
     # ── روابط التطبيق والبيئة ────────────────────────
     FRONTEND_URL: str = "http://localhost:3000"

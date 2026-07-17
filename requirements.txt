@@ -16,3 +16,8 @@ psycopg2-binary
 soundfile
 slowapi
 passlib[bcrypt]
+groq
+google-generativeai
+itsdangerous
+fastapi-mail
+ffmpeg-python

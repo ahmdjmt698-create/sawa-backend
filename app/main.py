@@ -13,18 +13,17 @@ from app.limiter import limiter
 import os
 
 from app.database import engine, Base
-from app.routers import videos, auth, transcripts, payments, search
+from app.routers import videos, auth, transcripts, payments, search, comments, analytics
 from app.config import settings
 
 Base.metadata.create_all(bind=engine)
 
 # ── Rate Limiter (shared across routers) ─────────────
-# المثيل الوحيد معرّف في app/limiter.py — لا تُنشئ مثيلاً جديداً هنا
 
 app = FastAPI(
     title="Sawa سوى",
     description="بديل Loom العربي — API",
-    version="1.0.0",
+    version="2.0.0",
     docs_url="/docs" if os.getenv("ENVIRONMENT") != "production" else None,
     redoc_url=None,
 )
@@ -46,33 +45,22 @@ def _safe(obj):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """
-    يُعيد رسائل خطأ عربية مخصصة لأخطاء التحقق الشائعة.
-    الأخطاء الأخرى تُعاد بشكلها الافتراضي (مصفوفة pydantic).
-    """
-    # أنواع أخطاء طول كلمة المرور:
-    #   string_too_short / string_too_long → من Field(min_length=...) الأحرف
-    #   value_error                        → من field_validator (فحص البايتات)
-    PASSWORD_ERROR_TYPES = {"string_too_short",
-                            "string_too_long", "value_error"}
+    PASSWORD_ERROR_TYPES = {"string_too_short", "string_too_long", "value_error"}
     for err in exc.errors():
         loc = err.get("loc", ())
         etype = err.get("type", "")
         if "password" in loc and etype in PASSWORD_ERROR_TYPES:
-            # value_error يحمل الرسالة العربية مباشرة في ctx["error"]
             if etype == "value_error":
                 ctx_msg = str(err.get("ctx", {}).get("error", ""))
                 detail = ctx_msg if ctx_msg else "كلمة المرور طويلة جداً"
             else:
                 detail = "كلمة المرور يجب أن تكون 8 أحرف على الأقل"
-            return JSONResponse(status_code=422, content={"detail": detail})
+            return JSONResponse(status_code=422, content={"detail": detail, "error_code": "VALIDATION_ERROR"})
 
-    # fallback: جميع أخطاء التحقق الأخرى تُعاد بشكلها الافتراضي
-    # (نمرر عبر _safe أولاً لتفادي انهيار json.dumps عند وجود bytes)
     safe_errors = jsonable_encoder(_safe(exc.errors()))
     return JSONResponse(
         status_code=422,
-        content={"detail": safe_errors},
+        content={"detail": safe_errors, "error_code": "VALIDATION_ERROR"},
     )
 
 # ── CORS ─────────────────────────────────────────────
@@ -84,20 +72,18 @@ ALLOWED_ORIGINS = [
 frontend_url = os.getenv("FRONTEND_URL", "")
 if frontend_url:
     ALLOWED_ORIGINS.append(frontend_url)
-    # أضف بدون trailing slash أيضاً
     ALLOWED_ORIGINS.append(frontend_url.rstrip("/"))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,          # ✅ FIX: was hardcoded ["*"]
+    allow_origins=[o for o in ALLOWED_ORIGINS if o],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
+    expose_headers=["Set-Cookie"],
 )
 
 # ── Upload Dir (ensure exists) ────────────────────────
-# NOTE: Static file mount removed — files are served through the
-# authenticated /api/videos/{id}/stream endpoint instead.
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
 # ── Routers ───────────────────────────────────────────
@@ -111,6 +97,10 @@ app.include_router(payments.router,
                    prefix="/api/payments",    tags=["Payments"])
 app.include_router(search.router,      prefix="/api/search",
                    tags=["Search"])
+app.include_router(comments.router,    prefix="/api",
+                   tags=["Comments"])
+app.include_router(analytics.router,   prefix="/api/videos",
+                   tags=["Analytics"])
 
 
 @app.get("/")

@@ -1,5 +1,5 @@
 """
-مسارات النصوص المفرَّغة — جلب، تعديل، ترجمة، تلخيص، تحديد متحدثين
+مسارات النصوص المفرَّغة — جلب، تعديل، ترجمة، تلخيص، تحديد متحدثين، فصول ذكية
 """
 import json
 import io
@@ -41,6 +41,12 @@ class TranscriptResponse(BaseModel):
 class EditTranscriptRequest(BaseModel):
     full_text: Optional[str] = None
     segments:  Optional[list] = None
+
+class ChapterSchema(BaseModel):
+    start:   float
+    end:     float
+    title:   str
+    summary: str
 
 
 # ── Helper ────────────────────────────────────────────
@@ -128,18 +134,17 @@ def retry_transcription(
     transcript.error_message = None
     db.commit()
     from app.routers.videos import run_transcription_task
-    from app.config import settings
     background_tasks.add_task(
         run_transcription_task,
-        video_id=video_id, file_path=video.file_path,
+        video_id=video_id,
+        file_path=video.file_path,
         language=video.dialect if len(video.dialect) == 2 else "ar",
-        db_url=settings.DATABASE_URL,
     )
     return {"message": "تمت جدولة إعادة التفريغ", "status": "pending"}
 
 
 # ══════════════════════════════════════════════════════
-#  POST /api/transcripts/{video_id}/translate  🌍 جديد
+#  POST /api/transcripts/{video_id}/translate  🌍
 # ══════════════════════════════════════════════════════
 @router.post("/{video_id}/translate")
 def translate_transcript(
@@ -172,7 +177,7 @@ def translate_transcript(
 
 
 # ══════════════════════════════════════════════════════
-#  POST /api/transcripts/{video_id}/summarize  🤖 جديد
+#  POST /api/transcripts/{video_id}/summarize  🤖
 # ══════════════════════════════════════════════════════
 @router.post("/{video_id}/summarize")
 def summarize_transcript_route(
@@ -194,7 +199,6 @@ def summarize_transcript_route(
             transcript.full_text,
             language=transcript.language_detected or "ar"
         )
-        # احفظ الملخص في قاعدة البيانات
         transcript.summary = json.dumps(result, ensure_ascii=False)
         db.commit()
         return result
@@ -205,7 +209,7 @@ def summarize_transcript_route(
 
 
 # ══════════════════════════════════════════════════════
-#  POST /api/transcripts/{video_id}/diarize  👥 جديد
+#  POST /api/transcripts/{video_id}/diarize  👥
 # ══════════════════════════════════════════════════════
 @router.post("/{video_id}/diarize")
 def diarize_transcript(
@@ -227,13 +231,9 @@ def diarize_transcript(
         from app.ai_services import diarize_audio, merge_diarization_with_transcript
         segments = json.loads(transcript.segments_json or "[]")
 
-        # حدد المتحدثين
         speakers = diarize_audio(video.file_path, num_speakers)
-
-        # ادمج مع التفريغ
         merged = merge_diarization_with_transcript(segments, speakers)
 
-        # احفظ النتائج
         transcript.segments_json = json.dumps(merged, ensure_ascii=False)
         db.commit()
 
@@ -249,12 +249,96 @@ def diarize_transcript(
 
 
 # ══════════════════════════════════════════════════════
-#  GET /api/transcripts/{video_id}/export  📥 محدّث
+#  POST /api/transcripts/{video_id}/chapters  📑 Feature 2
+# ══════════════════════════════════════════════════════
+@router.post("/{video_id}/chapters")
+def generate_chapters(
+    video_id:     str,
+    db:           Session        = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
+    """يُنشئ فصولاً ذكية من النص المفرَّغ باستخدام Claude"""
+    transcript = _get_transcript_or_404(video_id, db, current_user)
+
+    if transcript.status != TranscriptStatus.DONE:
+        raise HTTPException(400, "التفريغ لم يكتمل بعد")
+    if not transcript.full_text:
+        raise HTTPException(400, "لا يوجد نص لإنشاء الفصول")
+
+    try:
+        import anthropic
+        import os
+
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise HTTPException(500, "ANTHROPIC_API_KEY غير موجود")
+
+        segments = json.loads(transcript.segments_json) if transcript.segments_json else []
+        segments_text = "\n".join([
+            f"[{s.get('start', 0):.1f}s - {s.get('end', 0):.1f}s]: {s.get('text', '')}"
+            for s in segments
+        ])
+
+        prompt = f"""أنت مساعد ذكي. لديك نص مفرَّغ من تسجيل صوتي/فيديو.
+قم بتقسيمه إلى فصول (chapters) منطقية.
+
+أرجع JSON فقط بدون أي نص إضافي:
+{{"chapters": [{{"start": 0.0, "end": 120.5, "title": "عنوان الفصل", "summary": "ملخص الفصل في جملة"}}]}}
+
+- كل فصل يجب أن يكون منطقياً في المحتوى
+- العنوان بالعربية
+- استخدم الطوابع الزمنية الفعلية من النص
+- لا تُخترع توقيتاً غير موجود في النص
+
+النص:
+{segments_text[:8000]}"""
+
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        raw = message.content[0].text.strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        chapters_data = json.loads(raw)
+
+        # احفظ في قاعدة البيانات
+        transcript.chapters_json = json.dumps(chapters_data, ensure_ascii=False)
+        db.commit()
+
+        return chapters_data
+
+    except json.JSONDecodeError:
+        raise HTTPException(500, "فشل تحليل استجابة الذكاء الاصطناعي")
+    except Exception as e:
+        raise HTTPException(500, f"فشل إنشاء الفصول: {str(e)}")
+
+
+# ══════════════════════════════════════════════════════
+#  GET /api/transcripts/{video_id}/chapters
+# ══════════════════════════════════════════════════════
+@router.get("/{video_id}/chapters")
+def get_chapters(
+    video_id:     str,
+    db:           Session        = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
+    """جلب الفصول المحفوظة"""
+    transcript = _get_transcript_or_404(video_id, db, current_user)
+    if transcript.chapters_json:
+        return json.loads(transcript.chapters_json)
+    return {"chapters": []}
+
+
+# ══════════════════════════════════════════════════════
+#  GET /api/transcripts/{video_id}/export  📥
 # ══════════════════════════════════════════════════════
 @router.get("/{video_id}/export")
 def export_transcript(
     video_id:     str,
-    fmt:          str           = "txt",   # txt | srt | json | docx
+    fmt:          str           = "txt",
     db:           Session       = Depends(get_db),
     current_user: Optional[User]= Depends(get_current_user),
 ):
@@ -291,6 +375,7 @@ def export_transcript(
             "segments":  segments,
             "language":  transcript.language_detected,
             "summary":   json.loads(transcript.summary) if transcript.summary else None,
+            "chapters":  json.loads(transcript.chapters_json) if transcript.chapters_json else None,
         })
 
     elif fmt == "docx":
@@ -310,11 +395,9 @@ def _export_docx(video, transcript, segments):
 
         doc = Document()
 
-        # العنوان
         title = doc.add_heading(video.title if video else "نص مفرَّغ", 0)
         title.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-        # معلومات
         info = doc.add_paragraph()
         info.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         info.add_run(f"التاريخ: {video.created_at.strftime('%Y/%m/%d') if video else ''} | ")
@@ -322,7 +405,6 @@ def _export_docx(video, transcript, segments):
 
         doc.add_paragraph("─" * 50)
 
-        # الملخص إن وجد
         if transcript.summary:
             try:
                 summary_data = json.loads(transcript.summary)
@@ -340,7 +422,6 @@ def _export_docx(video, transcript, segments):
             except Exception:
                 pass
 
-        # النص الكامل مع المتحدثين
         doc.add_heading("النص المفرَّغ الكامل", 1)
 
         current_speaker = None
@@ -361,7 +442,6 @@ def _export_docx(video, transcript, segments):
             p.add_run(f"{time_str} ").font.color.rgb = RGBColor(0x9C, 0xA3, 0xAF)
             p.add_run(seg["text"])
 
-        # احفظ في الذاكرة
         buf = io.BytesIO()
         doc.save(buf)
         buf.seek(0)

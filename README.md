@@ -1,4 +1,5 @@
 # سوى — Backend 🎙️
+
 > بديل Loom العربي مع تفريغ صوت ذكي
 
 ---
@@ -6,22 +7,26 @@
 ## 🚀 تشغيل المشروع (خطوة بخطوة)
 
 ### 1. تثبيت المتطلبات
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 2. إعداد ملف البيئة
+
 ```bash
 cp .env.example .env
 # عدّل .env حسب بيئتك
 ```
 
 ### 3. تشغيل السيرفر
+
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
 
 ### 4. افتح التوثيق التلقائي
+
 ```
 http://localhost:8000/docs
 ```
@@ -29,6 +34,7 @@ http://localhost:8000/docs
 ---
 
 ## 📁 هيكل المشروع
+
 ```
 sawa-backend/
 ├── app/
@@ -52,28 +58,31 @@ sawa-backend/
 ## 🔌 API Endpoints
 
 ### المصادقة
-| الطريقة | المسار | الوصف |
-|--------|--------|-------|
-| POST | `/api/auth/register` | تسجيل مستخدم جديد |
-| POST | `/api/auth/login` | تسجيل الدخول |
-| GET  | `/api/auth/me` | بيانات المستخدم الحالي |
+
+| الطريقة | المسار               | الوصف                  |
+| ------- | -------------------- | ---------------------- |
+| POST    | `/api/auth/register` | تسجيل مستخدم جديد      |
+| POST    | `/api/auth/login`    | تسجيل الدخول           |
+| GET     | `/api/auth/me`       | بيانات المستخدم الحالي |
 
 ### الفيديوهات
-| الطريقة | المسار | الوصف |
-|--------|--------|-------|
-| POST   | `/api/videos/upload` | رفع فيديو + بدء التفريغ |
-| GET    | `/api/videos/my` | فيديوهات المستخدم |
-| GET    | `/api/videos/{id}` | فيديو بعينه |
-| GET    | `/api/videos/share/{token}` | رابط المشاركة العام |
-| DELETE | `/api/videos/{id}` | حذف فيديو |
+
+| الطريقة | المسار                      | الوصف                   |
+| ------- | --------------------------- | ----------------------- |
+| POST    | `/api/videos/upload`        | رفع فيديو + بدء التفريغ |
+| GET     | `/api/videos/my`            | فيديوهات المستخدم       |
+| GET     | `/api/videos/{id}`          | فيديو بعينه             |
+| GET     | `/api/videos/share/{token}` | رابط المشاركة العام     |
+| DELETE  | `/api/videos/{id}`          | حذف فيديو               |
 
 ### التفريغ
-| الطريقة | المسار | الوصف |
-|--------|--------|-------|
-| GET   | `/api/transcripts/{video_id}` | جلب النص المفرَّغ |
-| PATCH | `/api/transcripts/{video_id}` | تعديل النص يدوياً |
-| POST  | `/api/transcripts/{video_id}/retry` | إعادة التفريغ |
-| GET   | `/api/transcripts/{video_id}/export?fmt=srt` | تصدير (txt/srt/json) |
+
+| الطريقة | المسار                                       | الوصف                |
+| ------- | -------------------------------------------- | -------------------- |
+| GET     | `/api/transcripts/{video_id}`                | جلب النص المفرَّغ    |
+| PATCH   | `/api/transcripts/{video_id}`                | تعديل النص يدوياً    |
+| POST    | `/api/transcripts/{video_id}/retry`          | إعادة التفريغ        |
+| GET     | `/api/transcripts/{video_id}/export?fmt=srt` | تصدير (txt/srt/json) |
 
 ---
 
@@ -96,17 +105,14 @@ python test_transcription.py
 
 ## 📊 نماذج Whisper — اختر حسب احتياجك
 
-| النموذج | الحجم | السرعة | الدقة |
-|---------|-------|--------|-------|
-| `tiny`  | 75 MB | ⚡⚡⚡⚡⚡ | ⭐⭐ |
-| `base`  | 145 MB | ⚡⚡⚡⚡ | ⭐⭐⭐ |
-| `small` | 480 MB | ⚡⚡⚡ | ⭐⭐⭐⭐ |
-| `large-v3` | 1.5 GB | ⚡ | ⭐⭐⭐⭐⭐ |
+| النموذج    | الحجم  | السرعة     | الدقة      |
+| ---------- | ------ | ---------- | ---------- |
+| `tiny`     | 75 MB  | ⚡⚡⚡⚡⚡ | ⭐⭐       |
+| `base`     | 145 MB | ⚡⚡⚡⚡   | ⭐⭐⭐     |
+| `small`    | 480 MB | ⚡⚡⚡     | ⭐⭐⭐⭐   |
+| `large-v3` | 1.5 GB | ⚡         | ⭐⭐⭐⭐⭐ |
 
 > للتطوير: `base` ✅  
 > للإنتاج: `large-v3` ✅
 
 ---
-
-## 🔮 الخطوة التالية
-بعد تشغيل الـ Backend بنجاح → نبني الـ Frontend بـ React

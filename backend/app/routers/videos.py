@@ -6,7 +6,8 @@ import uuid
 import shutil
 from pathlib import Path
 from typing import Optional, List
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+import aiofiles
 
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks, Request
 from fastapi.responses import FileResponse
@@ -121,8 +122,9 @@ async def upload_video(
     filename  = f"{video_id}.{ext}"
     file_path = os.path.join(settings.UPLOAD_DIR, filename)
 
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    async with aiofiles.open(file_path, "wb") as buffer:
+        while chunk := await file.read(1024 * 1024):
+            await buffer.write(chunk)
 
     file_size = os.path.getsize(file_path)
 

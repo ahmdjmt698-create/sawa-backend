@@ -1,0 +1,1030 @@
+diff --git a/README.md b/README.md
+index 8fc37ee..dbf547c 100644
+--- a/README.md
++++ b/README.md
+@@ -1,112 +1,77 @@
+-# سوى — Backend 🎙️
+-> بديل Loom العربي مع تفريغ صوت ذكي
++# سوى — Sawa Backend
+ 
+----
++بديل Loom العربي — واجهة برمجية مبنية على FastAPI.
+ 
+-## 🚀 تشغيل المشروع (خطوة بخطوة)
++## التشغيل السريع
+ 
+-### 1. تثبيت المتطلبات
+ ```bash
++cp env.example .env
++# ولّد SECRET_KEY:
++python -c "import secrets; print(secrets.token_hex(32))"
++# ضع القيمة في .env تحت SECRET_KEY
++
+ pip install -r requirements.txt
++uvicorn app.main:app --reload
+ ```
+ 
+-### 2. إعداد ملف البيئة
+-```bash
+-cp .env.example .env
+-# عدّل .env حسب بيئتك
+-```
++عند الإقلاع، إذا كان `SECRET_KEY` مفقوداً سيتوقّف التطبيق مع رسالة عربية واضحة.
++
++## الاختبارات
+ 
+-### 3. تشغيل السيرفر
+ ```bash
+-uvicorn app.main:app --reload --port 8000
++pip install pytest httpx
++pytest -q
+ ```
+ 
+-### 4. افتح التوثيق التلقائي
+-```
+-http://localhost:8000/docs
+-```
++الاختبارات تغطّي `POST /api/auth/register`، `POST /api/auth/login`،
++التحقق من كلمات المرور الطويلة، وسلوك httpOnly cookie.
+ 
+----
++## المصادقة (JWT عبر httpOnly cookie)
+ 
+-## 📁 هيكل المشروع
+-```
+-sawa-backend/
+-├── app/
+-│   ├── main.py           # نقطة دخول التطبيق
+-│   ├── config.py         # الإعدادات المركزية
+-│   ├── database.py       # نماذج قاعدة البيانات
+-│   ├── auth.py           # JWT + كلمات المرور
+-│   ├── transcription.py  # نموذج Whisper (القلب)
+-│   └── routers/
+-│       ├── auth.py       # تسجيل + دخول
+-│       ├── videos.py     # رفع + جلب + حذف
+-│       └── transcripts.py # جلب + تعديل + تصدير
+-├── uploads/              # ملفات الفيديو (تُنشأ تلقائياً)
+-├── requirements.txt
+-├── .env.example
+-└── README.md
+-```
++- عند نجاح `register` أو `login`، يضع الخادم JWT في **httpOnly cookie**
++  اسمه `sawa_access_token` (وليس في `localStorage`) لحماية الجلسة من هجمات XSS.
++- على العميل استخدام `credentials: "include"` (fetch) أو `xhr.withCredentials = true`
++  حتى يُرفَق الكوكي مع الطلبات.
++- `POST /api/auth/logout` يمسح الكوكي من الخادم.
++- كـ fallback يدعم الخادم أيضاً رأس `Authorization: Bearer <token>` لعملاء غير المتصفح.
+ 
+----
+-
+-## 🔌 API Endpoints
+-
+-### المصادقة
+-| الطريقة | المسار | الوصف |
+-|--------|--------|-------|
+-| POST | `/api/auth/register` | تسجيل مستخدم جديد |
+-| POST | `/api/auth/login` | تسجيل الدخول |
+-| GET  | `/api/auth/me` | بيانات المستخدم الحالي |
+-
+-### الفيديوهات
+-| الطريقة | المسار | الوصف |
+-|--------|--------|-------|
+-| POST   | `/api/videos/upload` | رفع فيديو + بدء التفريغ |
+-| GET    | `/api/videos/my` | فيديوهات المستخدم |
+-| GET    | `/api/videos/{id}` | فيديو بعينه |
+-| GET    | `/api/videos/share/{token}` | رابط المشاركة العام |
+-| DELETE | `/api/videos/{id}` | حذف فيديو |
+-
+-### التفريغ
+-| الطريقة | المسار | الوصف |
+-|--------|--------|-------|
+-| GET   | `/api/transcripts/{video_id}` | جلب النص المفرَّغ |
+-| PATCH | `/api/transcripts/{video_id}` | تعديل النص يدوياً |
+-| POST  | `/api/transcripts/{video_id}/retry` | إعادة التفريغ |
+-| GET   | `/api/transcripts/{video_id}/export?fmt=srt` | تصدير (txt/srt/json) |
+-
+----
+-
+-## 🎙️ اختبار التفريغ بسرعة
+-
+-```python
+-# test_transcription.py
+-from app.transcription import transcribe_audio
+-
+-result = transcribe_audio("test_audio.mp3", language="ar")
+-print(result["full_text"])
+-print(f"استغرق {result['processing_time']} ثانية")
+-```
++### نموذج التسجيل
+ 
+-```bash
+-python test_transcription.py
++> ⚠️ حقل الاسم في طلب التسجيل اسمه **`name`** (وليس `full_name`).
++
++```http
++POST /api/auth/register
++Content-Type: application/json
++
++{
++  "name":     "أحمد",
++  "email":    "a@example.com",
++  "password": "password123"
++}
+ ```
+ 
+----
++الاستجابة:
+ 
+-## 📊 نماذج Whisper — اختر حسب احتياجك
++```json
++{
++  "user":         { "id": "…", "email": "…", "name": "أحمد", "plan": "free" },
++  "access_token": "…",
++  "token_type":   "bearer"
++}
++```
+ 
+-| النموذج | الحجم | السرعة | الدقة |
+-|---------|-------|--------|-------|
+-| `tiny`  | 75 MB | ⚡⚡⚡⚡⚡ | ⭐⭐ |
+-| `base`  | 145 MB | ⚡⚡⚡⚡ | ⭐⭐⭐ |
+-| `small` | 480 MB | ⚡⚡⚡ | ⭐⭐⭐⭐ |
+-| `large-v3` | 1.5 GB | ⚡ | ⭐⭐⭐⭐⭐ |
++### تسجيل الدخول
+ 
+-> للتطوير: `base` ✅  
+-> للإنتاج: `large-v3` ✅
++`POST /api/auth/login` بصيغة `application/x-www-form-urlencoded` بالحقول
++`username` (البريد الإلكتروني) و `password`.
+ 
+----
++## متطلبات البيئة
+ 
+-## 🔮 الخطوة التالية
+-بعد تشغيل الـ Backend بنجاح → نبني الـ Frontend بـ React
++| المتغير            | مطلوب | ملاحظات                                        |
++|--------------------|:-----:|------------------------------------------------|
++| `SECRET_KEY`       | ✔     | 32 بايت على الأقل. في الإنتاج يُرفَض القيم الافتراضية. |
++| `DATABASE_URL`     |       | افتراضي: SQLite محلي                            |
++| `FRONTEND_URL`     |       | يُضاف إلى قائمة CORS                            |
++| `ENVIRONMENT`      |       | `development` أو `production`                  |
++| `ANTHROPIC_API_KEY`|       | اختياري — لميزات الذكاء الاصطناعي              |
++| `HUGGINGFACE_TOKEN`|       | اختياري — لتحديد المتحدثين (Diarization)        |
+diff --git a/app/auth.py b/app/auth.py
+index a0fe816..aa37188 100644
+--- a/app/auth.py
++++ b/app/auth.py
+@@ -1,31 +1,47 @@
+ """
+-نظام المصادقة — JWT + تشفير كلمات المرور
++نظام المصادقة — JWT + تشفير كلمات المرور (bcrypt مباشرة، بدون passlib)
++يدعم قراءة التوكن من httpOnly cookie أو من رأس Authorization (fallback).
+ """
+ from datetime import datetime, timedelta
+ from typing import Optional
+ 
+-from fastapi import Depends, HTTPException, status
++import bcrypt
++from fastapi import Depends, HTTPException, Request, status
+ from fastapi.security import OAuth2PasswordBearer
+ from jose import JWTError, jwt
+-from passlib.context import CryptContext
+ from sqlalchemy.orm import Session
+ 
+ from app.config import settings
+ from app.database import get_db, User
+ 
+-# ── إعداد التشفير ────────────────────────────────────
+-pwd_context    = CryptContext(schemes=["bcrypt"], deprecated="auto")
+-oauth2_scheme  = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
++# اسم الكوكي المستخدم لحفظ JWT
++ACCESS_COOKIE_NAME = "sawa_access_token"
++
++# auto_error=False حتى لا يفشل الطلب عند غياب رأس Authorization
++# (سنعتمد على الكوكي كمصدر أساسي)
++oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
++
++# الحد الأقصى لطول كلمة المرور بالبايتات (bcrypt يقصر عند 72)
++_BCRYPT_MAX_BYTES = 72
++
++
++def _prepare(password: str) -> bytes:
++    """تحويل كلمة المرور إلى bytes وقصّها عند 72 بايت (حد bcrypt)."""
++    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
+ 
+ 
+ # ══════════════════════════════════════════════════════
+ #  كلمات المرور
+ # ══════════════════════════════════════════════════════
+ def hash_password(password: str) -> str:
+-    return pwd_context.hash(password)
++    return bcrypt.hashpw(_prepare(password), bcrypt.gensalt()).decode("utf-8")
++
+ 
+ def verify_password(plain: str, hashed: str) -> bool:
+-    return pwd_context.verify(plain, hashed)
++    try:
++        return bcrypt.checkpw(_prepare(plain), hashed.encode("utf-8"))
++    except (ValueError, TypeError):
++        return False
+ 
+ 
+ # ══════════════════════════════════════════════════════
+@@ -33,7 +49,7 @@ def verify_password(plain: str, hashed: str) -> bool:
+ # ══════════════════════════════════════════════════════
+ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+     to_encode = data.copy()
+-    expire    = datetime.utcnow() + (
++    expire = datetime.utcnow() + (
+         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+     )
+     to_encode.update({"exp": expire})
+@@ -47,27 +63,59 @@ def decode_token(token: str) -> Optional[dict]:
+         return None
+ 
+ 
++# ══════════════════════════════════════════════════════
++#  Cookie helpers
++# ══════════════════════════════════════════════════════
++def set_auth_cookie(response, token: str) -> None:
++    """
++    يكتب JWT كـ httpOnly cookie آمن.
++    - httponly=True : غير قابل للوصول من JavaScript (يحمي من XSS)
++    - secure : يُرسل عبر HTTPS فقط في الإنتاج
++    - samesite='lax' : يحمي من CSRF لمعظم الحالات مع دعم روابط الدخول العادية
++    """
++    is_prod = (settings.ENVIRONMENT or "development").lower() == "production"
++    response.set_cookie(
++        key=ACCESS_COOKIE_NAME,
++        value=token,
++        httponly=True,
++        secure=is_prod,
++        samesite="lax",
++        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
++        path="/",
++    )
++
++
++def clear_auth_cookie(response) -> None:
++    response.delete_cookie(key=ACCESS_COOKIE_NAME, path="/")
++
++
+ # ══════════════════════════════════════════════════════
+ #  Dependencies
+ # ══════════════════════════════════════════════════════
++def _extract_token(request: Request, bearer: Optional[str]) -> Optional[str]:
++    # الأولوية للكوكي، ثم رأس Authorization كـ fallback
++    cookie_token = request.cookies.get(ACCESS_COOKIE_NAME)
++    return cookie_token or bearer
++
++
+ def get_current_user(
+-    token: Optional[str] = Depends(oauth2_scheme),
++    request: Request,
++    bearer: Optional[str] = Depends(oauth2_scheme),
+     db: Session = Depends(get_db),
+ ) -> Optional[User]:
+     """يُرجع المستخدم الحالي — أو None إذا لم يكن مسجلاً دخوله"""
++    token = _extract_token(request, bearer)
+     if not token:
+         return None
+     payload = decode_token(token)
+     if not payload:
+         return None
+-    user = db.query(User).filter(User.id == payload.get("sub")).first()
+-    return user
++    return db.query(User).filter(User.id == payload.get("sub")).first()
+ 
+ 
+ def require_auth(
+     current_user: Optional[User] = Depends(get_current_user),
+ ) -> User:
+-    """يُرجع المستخدم أو يرفع خطأ 401 إذا لم يكن مسجلاً"""
+     if not current_user:
+         raise HTTPException(
+             status_code=status.HTTP_401_UNAUTHORIZED,
+diff --git a/app/config.py b/app/config.py
+index 03f7b84..df8bec5 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -1,9 +1,14 @@
+ """
+ الإعدادات المركزية لمشروع سوى
++- يتم التحقق من متغيرات البيئة المطلوبة عند الإقلاع.
++- إذا كان أي منها ناقصاً، يُوقَف التطبيق برسالة عربية واضحة.
+ """
+-from pydantic_settings import BaseSettings
++import sys
+ from typing import Optional
+ 
++from pydantic import ValidationError
++from pydantic_settings import BaseSettings
++
+ 
+ class Settings(BaseSettings):
+     # ── قاعدة البيانات ──────────────────────────────
+@@ -19,7 +24,7 @@ class Settings(BaseSettings):
+     WHISPER_DEVICE: str = "cpu"
+     WHISPER_COMPUTE_TYPE: str = "int8"
+ 
+-    # ── المصادقة ─────────────────────────────────────
++    # ── المصادقة (مطلوبة) ─────────────────────────────
+     SECRET_KEY: str
+     ALGORITHM: str = "HS256"
+     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+@@ -29,7 +34,7 @@ class Settings(BaseSettings):
+     FREE_MAX_DURATION_SECONDS: int = 300
+     PRO_MAX_DURATION_SECONDS: int = 3600
+ 
+-    # ── مفاتيح خارجية ────────────────────────────────
++    # ── مفاتيح خارجية (اختيارية) ─────────────────────
+     ANTHROPIC_API_KEY: Optional[str] = None
+     HUGGINGFACE_TOKEN: Optional[str] = None
+     CRYPTOMUS_MERCHANT_ID: Optional[str] = None
+@@ -43,7 +48,46 @@ class Settings(BaseSettings):
+     class Config:
+         env_file = ".env"
+         env_file_encoding = "utf-8"
+-        extra = "ignore"   # ← يتجاهل أي متغيرات إضافية في .env بدل رفع خطأ
++        extra = "ignore"
++
++
++# ══════════════════════════════════════════════════════
++#  تحقق الإقلاع
++# ══════════════════════════════════════════════════════
++REQUIRED_ENV_VARS = ["SECRET_KEY"]
++
++def _fail(msg: str) -> "None":
++    banner = "═" * 60
++    sys.stderr.write(
++        f"\n{banner}\n"
++        f"❌ خطأ في إعدادات البيئة\n"
++        f"{banner}\n{msg}\n{banner}\n\n"
++    )
++    raise SystemExit(1)
++
++
++try:
++    settings = Settings()
++except ValidationError as e:
++    missing = [str(err["loc"][0]) for err in e.errors() if err["type"] == "missing"]
++    if missing:
++        _fail(
++            "المتغيرات التالية مطلوبة لكنها غير معرّفة في ملف .env أو البيئة:\n"
++            + "\n".join(f"  • {v}" for v in missing)
++            + "\n\nولّد قيمة آمنة لـ SECRET_KEY عبر:\n"
++              "  python -c \"import secrets; print(secrets.token_hex(32))\"\n"
++              "ثم ضعها في ملف .env كسطر:\n"
++              "  SECRET_KEY=<القيمة>"
++        )
++    _fail(str(e))
+ 
+ 
+-settings = Settings()
++# فحص إضافي: قيم لا يجب أن تُترك على القيمة الافتراضية غير الآمنة في الإنتاج
++if settings.ENVIRONMENT.lower() == "production":
++    weak_defaults = {"CHANGE_ME_generate_with_secrets_token_hex_32", "changeme", "secret", ""}
++    if (settings.SECRET_KEY or "").strip() in weak_defaults or len(settings.SECRET_KEY) < 32:
++        _fail(
++            "SECRET_KEY غير آمن للاستخدام في الإنتاج.\n"
++            "يجب أن يكون سلسلة عشوائية بطول 32 بايت على الأقل.\n"
++            "ولّد قيمة عبر: python -c \"import secrets; print(secrets.token_hex(32))\""
++        )
+diff --git a/app/routers/auth.py b/app/routers/auth.py
+index 2321872..237e002 100644
+--- a/app/routers/auth.py
++++ b/app/routers/auth.py
+@@ -1,84 +1,117 @@
+ """
+-نظام المصادقة — JWT + تشفير كلمات المرور (bcrypt مباشرة، بدون passlib)
++مسارات المصادقة: register / login / logout / me
++- JWT يُخزَّن في httpOnly cookie آمن (وليس localStorage) لحماية جلسة المستخدم من XSS.
++- تسجيل الخروج يمسح الكوكي على الخادم.
+ """
+-from datetime import datetime, timedelta
+-from typing import Optional
+-
+-import bcrypt
+-from fastapi import Depends, HTTPException, status
+-from fastapi.security import OAuth2PasswordBearer
+-from jose import JWTError, jwt
++from fastapi import APIRouter, Depends, HTTPException, Response, status
++from fastapi.security import OAuth2PasswordRequestForm
++from pydantic import BaseModel, EmailStr, Field, field_validator
+ from sqlalchemy.orm import Session
+ 
+-from app.config import settings
+-from app.database import get_db, User
+-
+-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
++from app.auth import (
++    clear_auth_cookie,
++    create_access_token,
++    hash_password,
++    require_auth,
++    set_auth_cookie,
++    verify_password,
++)
++from app.database import User, get_db
+ 
+-# الحد الأقصى لطول كلمة المرور بالبايتات (bcrypt يقصر عند 72)
+-_BCRYPT_MAX_BYTES = 72
++router = APIRouter()
+ 
+-
+-def _prepare(password: str) -> bytes:
+-    """تحويل كلمة المرور إلى bytes وقصّها عند 72 بايت (حد bcrypt)."""
+-    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
++# ── حدود كلمة المرور ────────────────────────────────
++_PWD_MIN_CHARS = 8
++_PWD_MAX_BYTES = 72  # حد bcrypt الصلب
+ 
+ 
+ # ══════════════════════════════════════════════════════
+-#  كلمات المرور
++#  Schemas
+ # ══════════════════════════════════════════════════════
+-def hash_password(password: str) -> str:
+-    return bcrypt.hashpw(_prepare(password), bcrypt.gensalt()).decode("utf-8")
+-
+-
+-def verify_password(plain: str, hashed: str) -> bool:
+-    try:
+-        return bcrypt.checkpw(_prepare(plain), hashed.encode("utf-8"))
+-    except (ValueError, TypeError):
+-        return False
++class RegisterIn(BaseModel):
++    """
++    ⚠️ ملاحظة: الحقل اسمه ``name`` (وليس full_name).
++    """
++    name: str = Field(..., min_length=1, max_length=100)
++    email: EmailStr
++    password: str = Field(..., min_length=_PWD_MIN_CHARS)
++
++    @field_validator("password")
++    @classmethod
++    def _check_password_bytes(cls, v: str) -> str:
++        if len(v.encode("utf-8")) > _PWD_MAX_BYTES:
++            raise ValueError("كلمة المرور طويلة جداً (الحد الأقصى 72 بايت)")
++        return v
++
++
++class UserOut(BaseModel):
++    id: str
++    email: EmailStr
++    name: str
++    plan: str
++
++    class Config:
++        from_attributes = True
++
++
++class AuthResponse(BaseModel):
++    """
++    ملاحظة: التوكن يُخزّن في httpOnly cookie تلقائياً؛
++    نُعيده أيضاً في الجسم لدعم عملاء غير المتصفح (اختباري / CLI).
++    """
++    user: UserOut
++    access_token: str
++    token_type: str = "bearer"
+ 
+ 
+ # ══════════════════════════════════════════════════════
+-#  JWT Tokens
++#  Routes
+ # ══════════════════════════════════════════════════════
+-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+-    to_encode = data.copy()
+-    expire = datetime.utcnow() + (
+-        expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
++@router.post("/register", response_model=AuthResponse, status_code=201)
++def register(payload: RegisterIn, response: Response, db: Session = Depends(get_db)):
++    if db.query(User).filter(User.email == payload.email).first():
++        raise HTTPException(status_code=400, detail="البريد الإلكتروني مسجّل مسبقاً")
++
++    user = User(
++        email=payload.email,
++        name=payload.name,
++        hashed_password=hash_password(payload.password),
+     )
+-    to_encode.update({"exp": expire})
+-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+-
++    db.add(user)
++    db.commit()
++    db.refresh(user)
+ 
+-def decode_token(token: str) -> Optional[dict]:
+-    try:
+-        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+-    except JWTError:
+-        return None
++    token = create_access_token({"sub": user.id})
++    set_auth_cookie(response, token)
++    return AuthResponse(user=UserOut.model_validate(user), access_token=token)
+ 
+ 
+-# ══════════════════════════════════════════════════════
+-#  Dependencies
+-# ══════════════════════════════════════════════════════
+-def get_current_user(
+-    token: Optional[str] = Depends(oauth2_scheme),
++@router.post("/login", response_model=AuthResponse)
++def login(
++    response: Response,
++    form: OAuth2PasswordRequestForm = Depends(),
+     db: Session = Depends(get_db),
+-) -> Optional[User]:
+-    if not token:
+-        return None
+-    payload = decode_token(token)
+-    if not payload:
+-        return None
+-    return db.query(User).filter(User.id == payload.get("sub")).first()
+-
+-
+-def require_auth(
+-    current_user: Optional[User] = Depends(get_current_user),
+-) -> User:
+-    if not current_user:
++):
++    # OAuth2PasswordRequestForm يستخدم "username" — نعامله كبريد إلكتروني
++    user = db.query(User).filter(User.email == form.username).first()
++    if not user or not verify_password(form.password, user.hashed_password):
+         raise HTTPException(
+             status_code=status.HTTP_401_UNAUTHORIZED,
+-            detail="يجب تسجيل الدخول أولاً",
++            detail="بيانات الدخول غير صحيحة",
+             headers={"WWW-Authenticate": "Bearer"},
+         )
++
++    token = create_access_token({"sub": user.id})
++    set_auth_cookie(response, token)
++    return AuthResponse(user=UserOut.model_validate(user), access_token=token)
++
++
++@router.post("/logout", status_code=200)
++def logout(response: Response):
++    clear_auth_cookie(response)
++    return {"status": "ok"}
++
++
++@router.get("/me", response_model=UserOut)
++def me(current_user: User = Depends(require_auth)):
+     return current_user
+diff --git a/env.example b/env.example
+index 8ae0434..03512b8 100644
+--- a/env.example
++++ b/env.example
+@@ -1,7 +1,5 @@
+ # ── قاعدة البيانات ──────────────────────────────────
+-# SQLite للتطوير
+ DATABASE_URL=sqlite:///./sawa.db
+-# PostgreSQL للإنتاج
+ # DATABASE_URL=postgresql://user:password@localhost/sawa_db
+ 
+ # ── نموذج Whisper ────────────────────────────────────
+@@ -9,7 +7,7 @@ WHISPER_MODEL=base
+ WHISPER_DEVICE=cpu
+ WHISPER_COMPUTE_TYPE=int8
+ 
+-# ── الأمان ───────────────────────────────────────────
++# ── الأمان (مطلوب) ───────────────────────────────────
+ # ولّد قيمة آمنة: python -c "import secrets; print(secrets.token_hex(32))"
+ SECRET_KEY=CHANGE_ME_generate_with_secrets_token_hex_32
+ 
+@@ -21,23 +19,16 @@ FREE_MAX_VIDEOS=25
+ FREE_MAX_DURATION_SECONDS=300
+ PRO_MAX_DURATION_SECONDS=3600
+ 
+-# ── الذكاء الاصطناعي ─────────────────────────────────
+-# console.anthropic.com
+-ANTHROPIC_API_KEY=sk-ant-...
++# ── الذكاء الاصطناعي (اختياري) ───────────────────────
++ANTHROPIC_API_KEY=
++# huggingface.co/settings/tokens
++HUGGINGFACE_TOKEN=
+ 
+-# ── تحديد المتحدثين (اختياري) ───────────────────────
+-# huggingface.co/settings/tokens ثم اقبل شروط:
+-# huggingface.co/pyannote/speaker-diarization-3.1
+-HUGGINGFACE_TOKEN=hf_...
+-
+-# ── بوابة الدفع Cryptomus ────────────────────────────
+-# cryptomus.com/cabinet/merchant
++# ── بوابة الدفع Cryptomus (اختياري) ──────────────────
+ CRYPTOMUS_API_KEY=
+ CRYPTOMUS_MERCHANT_ID=
+ 
+-# ── روابط التطبيق ────────────────────────────────────
++# ── روابط التطبيق والبيئة ────────────────────────────
+ FRONTEND_URL=http://localhost:3000
+ BACKEND_URL=http://localhost:8000
+-
+-# ── البيئة ───────────────────────────────────────────
+ ENVIRONMENT=development
+diff --git a/sawa-backend-fixes.patch b/sawa-backend-fixes.patch
+deleted file mode 100644
+index 12d71cd..0000000
+--- a/sawa-backend-fixes.patch
++++ /dev/null
+@@ -1,220 +0,0 @@
+-diff --git a/.env.example b/.env.example
+-index 8bb07c8..8ae0434 100644
+---- a/.env.example
+-+++ b/.env.example
+-@@ -1,19 +1,16 @@
+- # ── قاعدة البيانات ──────────────────────────────────
+--# SQLite للتطوير (لا تحتاج أي إعداد)
+-+# SQLite للتطوير
+- DATABASE_URL=sqlite:///./sawa.db
+--
+--# PostgreSQL للإنتاج (علّق على السطر أعلاه وشيّل التعليق من هنا)
+-+# PostgreSQL للإنتاج
+- # DATABASE_URL=postgresql://user:password@localhost/sawa_db
+- 
+- # ── نموذج Whisper ────────────────────────────────────
+--# tiny=سريع جداً (للتطوير) | base | small | medium | large-v3 (للإنتاج)
+- WHISPER_MODEL=base
+- WHISPER_DEVICE=cpu
+- WHISPER_COMPUTE_TYPE=int8
+- 
+- # ── الأمان ───────────────────────────────────────────
+--# ولّد قيمة آمنة بهذا الأمر ثم ضعها هنا:
+--# python -c "import secrets; print(secrets.token_hex(32))"
+-+# ولّد قيمة آمنة: python -c "import secrets; print(secrets.token_hex(32))"
+- SECRET_KEY=CHANGE_ME_generate_with_secrets_token_hex_32
+- 
+- # ── التخزين ──────────────────────────────────────────
+-@@ -25,31 +22,22 @@ FREE_MAX_DURATION_SECONDS=300
+- PRO_MAX_DURATION_SECONDS=3600
+- 
+- # ── الذكاء الاصطناعي ─────────────────────────────────
+--# احصل عليه من: console.anthropic.com
+-+# console.anthropic.com
+- ANTHROPIC_API_KEY=sk-ant-...
+- 
+- # ── تحديد المتحدثين (اختياري) ───────────────────────
+--# احصل عليه من: huggingface.co/settings/tokens
+--# ثم اقبل شروط النموذج في: huggingface.co/pyannote/speaker-diarization-3.1
+--HUGGINGFACE_TOKEN=hf_...
+--
+--# ── الذكاء الاصطناعي ─────────────────────────────────
+--# احصل عليه من: console.anthropic.com
+--ANTHROPIC_API_KEY=sk-ant-...
+--
+--# ── تحديد المتحدثين (اختياري) ────────────────────────
+--# احصل عليه من: huggingface.co/settings/tokens
+--# ثم اقبل شروط: huggingface.co/pyannote/speaker-diarization-3.1
+-+# huggingface.co/settings/tokens ثم اقبل شروط:
+-+# huggingface.co/pyannote/speaker-diarization-3.1
+- HUGGINGFACE_TOKEN=hf_...
+- 
+- # ── بوابة الدفع Cryptomus ────────────────────────────
+--# احصل عليهم من: cryptomus.com/cabinet/merchant
+-+# cryptomus.com/cabinet/merchant
+- CRYPTOMUS_API_KEY=
+- CRYPTOMUS_MERCHANT_ID=
+- 
+--# ── روابط التطبيق ───────────────────────────────────
+-+# ── روابط التطبيق ────────────────────────────────────
+- FRONTEND_URL=http://localhost:3000
+- BACKEND_URL=http://localhost:8000
+- 
+--# ── البيئة ──────────────────────────────────────────
+-+# ── البيئة ───────────────────────────────────────────
+- ENVIRONMENT=development
+-diff --git a/app/auth.py b/app/auth.py
+-index a0fe816..2321872 100644
+---- a/app/auth.py
+-+++ b/app/auth.py
+-@@ -1,31 +1,41 @@
+- """
+--نظام المصادقة — JWT + تشفير كلمات المرور
+-+نظام المصادقة — JWT + تشفير كلمات المرور (bcrypt مباشرة، بدون passlib)
+- """
+- from datetime import datetime, timedelta
+- from typing import Optional
+- 
+-+import bcrypt
+- from fastapi import Depends, HTTPException, status
+- from fastapi.security import OAuth2PasswordBearer
+- from jose import JWTError, jwt
+--from passlib.context import CryptContext
+- from sqlalchemy.orm import Session
+- 
+- from app.config import settings
+- from app.database import get_db, User
+- 
+--# ── إعداد التشفير ────────────────────────────────────
+--pwd_context    = CryptContext(schemes=["bcrypt"], deprecated="auto")
+--oauth2_scheme  = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+-+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+-+
+-+# الحد الأقصى لطول كلمة المرور بالبايتات (bcrypt يقصر عند 72)
+-+_BCRYPT_MAX_BYTES = 72
+-+
+-+
+-+def _prepare(password: str) -> bytes:
+-+    """تحويل كلمة المرور إلى bytes وقصّها عند 72 بايت (حد bcrypt)."""
+-+    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
+- 
+- 
+- # ══════════════════════════════════════════════════════
+- #  كلمات المرور
+- # ══════════════════════════════════════════════════════
+- def hash_password(password: str) -> str:
+--    return pwd_context.hash(password)
+-+    return bcrypt.hashpw(_prepare(password), bcrypt.gensalt()).decode("utf-8")
+-+
+- 
+- def verify_password(plain: str, hashed: str) -> bool:
+--    return pwd_context.verify(plain, hashed)
+-+    try:
+-+        return bcrypt.checkpw(_prepare(plain), hashed.encode("utf-8"))
+-+    except (ValueError, TypeError):
+-+        return False
+- 
+- 
+- # ══════════════════════════════════════════════════════
+-@@ -33,7 +43,7 @@ def verify_password(plain: str, hashed: str) -> bool:
+- # ══════════════════════════════════════════════════════
+- def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+-     to_encode = data.copy()
+--    expire    = datetime.utcnow() + (
+-+    expire = datetime.utcnow() + (
+-         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+-     )
+-     to_encode.update({"exp": expire})
+-@@ -54,20 +64,17 @@ def get_current_user(
+-     token: Optional[str] = Depends(oauth2_scheme),
+-     db: Session = Depends(get_db),
+- ) -> Optional[User]:
+--    """يُرجع المستخدم الحالي — أو None إذا لم يكن مسجلاً دخوله"""
+-     if not token:
+-         return None
+-     payload = decode_token(token)
+-     if not payload:
+-         return None
+--    user = db.query(User).filter(User.id == payload.get("sub")).first()
+--    return user
+-+    return db.query(User).filter(User.id == payload.get("sub")).first()
+- 
+- 
+- def require_auth(
+-     current_user: Optional[User] = Depends(get_current_user),
+- ) -> User:
+--    """يُرجع المستخدم أو يرفع خطأ 401 إذا لم يكن مسجلاً"""
+-     if not current_user:
+-         raise HTTPException(
+-             status_code=status.HTTP_401_UNAUTHORIZED,
+-diff --git a/app/config.py b/app/config.py
+-index aa5da3b..03f7b84 100644
+---- a/app/config.py
+-+++ b/app/config.py
+-@@ -11,34 +11,39 @@ class Settings(BaseSettings):
+- 
+-     # ── التخزين ──────────────────────────────────────
+-     UPLOAD_DIR: str = "uploads"
+--    MAX_FILE_SIZE_MB: int = 500          # حد أقصى 500 ميجا للفيديو
+-+    MAX_FILE_SIZE_MB: int = 500
+-     ALLOWED_EXTENSIONS: list = ["mp4", "webm", "mov", "mp3", "wav", "m4a"]
+- 
+-     # ── نموذج Whisper ────────────────────────────────
+--    # الخيارات: tiny | base | small | medium | large-v3
+--    # tiny  → سريع جداً، دقة أقل (للتطوير)
+--    # large-v3 → أبطأ، دقة عالية جداً (للإنتاج)
+--    WHISPER_MODEL: str = "base"  # غيّر حسب حاجتك
+--    WHISPER_DEVICE: str = "cpu"          # غيّر لـ "cuda" إذا عندك GPU
+--    WHISPER_COMPUTE_TYPE: str = "int8"   # int8 = أسرع على الـ CPU
+-+    WHISPER_MODEL: str = "base"
+-+    WHISPER_DEVICE: str = "cpu"
+-+    WHISPER_COMPUTE_TYPE: str = "int8"
+- 
+-     # ── المصادقة ─────────────────────────────────────
+--    SECRET_KEY: str                              # مطلوب — لا قيمة افتراضية (يُحدَّد عبر .env أو متغيرات البيئة)
+-+    SECRET_KEY: str
+-     ALGORITHM: str = "HS256"
+--    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # أسبوع
+-+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+- 
+-     # ── حدود الخطط ──────────────────────────────────
+-     FREE_MAX_VIDEOS: int = 25
+--    FREE_MAX_DURATION_SECONDS: int = 300   # 5 دقائق
+--    PRO_MAX_DURATION_SECONDS: int = 3600   # ساعة كاملة
+--    ANTHROPIC_API_KEY: Optional[str] = None  # مفتاح Anthropic API (اختياري)
+--    # معرف تاجر Cryptomus (اختياري)
+-+    FREE_MAX_DURATION_SECONDS: int = 300
+-+    PRO_MAX_DURATION_SECONDS: int = 3600
+-+
+-+    # ── مفاتيح خارجية ────────────────────────────────
+-+    ANTHROPIC_API_KEY: Optional[str] = None
+-+    HUGGINGFACE_TOKEN: Optional[str] = None
+-     CRYPTOMUS_MERCHANT_ID: Optional[str] = None
+--    CRYPTOMUS_API_KEY: Optional[str] = None  # مفتاح Cryptomus API (اختياري)
+-+    CRYPTOMUS_API_KEY: Optional[str] = None
+-+
+-+    # ── روابط التطبيق والبيئة ────────────────────────
+-+    FRONTEND_URL: str = "http://localhost:3000"
+-+    BACKEND_URL: str = "http://localhost:8000"
+-+    ENVIRONMENT: str = "development"
+- 
+-     class Config:
+-         env_file = ".env"
+-         env_file_encoding = "utf-8"
+-+        extra = "ignore"   # ← يتجاهل أي متغيرات إضافية في .env بدل رفع خطأ
+- 
+- 
+- settings = Settings()
+-diff --git a/requirements.txt b/requirements.txt
+-index 5d51745..545dcb3 100644
+---- a/requirements.txt
+-+++ b/requirements.txt
+-@@ -5,7 +5,7 @@ sqlalchemy
+- pydantic[email]
+- pydantic-settings
+- python-jose[cryptography]
+--passlib[bcrypt]
+-+bcrypt==4.2.0
+- faster-whisper
+- numpy
+- aiofiles
+--- /dev/null	2026-07-12 00:48:24.186128481 +0000
++++ tests/conftest.py	2026-07-12 00:56:11.093290564 +0000
+@@ -0,0 +1,42 @@
++"""
++إعداد بيئة اختبار معزولة (قاعدة بيانات SQLite في الذاكرة + SECRET_KEY تجريبي).
++"""
++import os
++os.environ.setdefault("SECRET_KEY", "test_secret_key_" + "0" * 32)
++os.environ.setdefault("DATABASE_URL", "sqlite:///./_test_sawa.db")
++os.environ.setdefault("ENVIRONMENT", "development")
++
++import pytest
++from fastapi.testclient import TestClient
++from sqlalchemy import create_engine
++from sqlalchemy.orm import sessionmaker
++
++from app.main import app
++from app.database import Base, get_db
++
++# قاعدة بيانات مستقلّة للاختبارات
++TEST_DB_URL = "sqlite:///./_test_sawa.db"
++engine = create_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
++TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
++
++
++def _override_get_db():
++    db = TestingSessionLocal()
++    try:
++        yield db
++    finally:
++        db.close()
++
++
++@pytest.fixture(autouse=True)
++def _fresh_db():
++    Base.metadata.drop_all(bind=engine)
++    Base.metadata.create_all(bind=engine)
++    app.dependency_overrides[get_db] = _override_get_db
++    yield
++    app.dependency_overrides.clear()
++
++
++@pytest.fixture
++def client():
++    return TestClient(app)
+--- /dev/null	2026-07-12 00:48:24.186128481 +0000
++++ tests/test_auth.py	2026-07-12 00:56:11.097383677 +0000
+@@ -0,0 +1,131 @@
++"""
++اختبارات تلقائية لمسارات المصادقة.
++تغطّي:
++  • POST /api/auth/register (نجاح + تكرار البريد + كلمة مرور طويلة)
++  • POST /api/auth/login    (نجاح + بيانات خاطئة)
++  • تخزين JWT في httpOnly cookie (ليس متاحاً لـ JS)
++  • hashing/verification لكلمات المرور الطويلة والعربية
++"""
++import pytest
++
++from app.auth import ACCESS_COOKIE_NAME, hash_password, verify_password
++
++
++# ══════════════════════════════════════════════════════
++#  hash_password / verify_password
++# ══════════════════════════════════════════════════════
++class TestPasswordHashing:
++    def test_hash_and_verify_short(self):
++        h = hash_password("short_pw")
++        assert verify_password("short_pw", h)
++        assert not verify_password("wrong", h)
++
++    def test_long_password_200_chars(self):
++        pw = "A" * 200
++        h = hash_password(pw)
++        assert verify_password(pw, h)
++
++    def test_long_password_over_72_bytes_no_crash(self):
++        # قبل الإصلاح كان passlib يرمي استثناء عند > 72 بايت
++        pw = "كلمةمرورطويلةجداً" * 20  # عشرات البايتات (UTF-8)
++        h = hash_password(pw)
++        assert verify_password(pw, h)
++
++    def test_verify_rejects_invalid_hash(self):
++        assert not verify_password("anything", "not-a-real-hash")
++
++
++# ══════════════════════════════════════════════════════
++#  /api/auth/register
++# ══════════════════════════════════════════════════════
++class TestRegister:
++    def test_register_success_sets_cookie(self, client):
++        r = client.post(
++            "/api/auth/register",
++            json={"name": "أحمد", "email": "a@example.com", "password": "password123"},
++        )
++        assert r.status_code == 201, r.text
++        data = r.json()
++        assert data["user"]["email"] == "a@example.com"
++        assert data["user"]["name"] == "أحمد"
++        assert data["access_token"]
++        # الكوكي يجب أن يكون موجوداً — httpOnly يُتحقق منه في السلوك (لا يظهر في document.cookie)
++        assert ACCESS_COOKIE_NAME in r.cookies
++
++    def test_register_duplicate_email(self, client):
++        payload = {"name": "A", "email": "dup@example.com", "password": "password123"}
++        assert client.post("/api/auth/register", json=payload).status_code == 201
++        r = client.post("/api/auth/register", json=payload)
++        assert r.status_code == 400
++
++    def test_register_long_password_200_chars(self, client):
++        r = client.post(
++            "/api/auth/register",
++            json={"name": "B", "email": "long@example.com", "password": "x" * 200},
++        )
++        # المتوقّع: 422 (تجاوز 72 بايت) بدون أن يرمي 500
++        assert r.status_code == 422
++
++    def test_register_short_password_rejected(self, client):
++        r = client.post(
++            "/api/auth/register",
++            json={"name": "C", "email": "short@example.com", "password": "abc"},
++        )
++        assert r.status_code == 422
++
++
++# ══════════════════════════════════════════════════════
++#  /api/auth/login
++# ══════════════════════════════════════════════════════
++class TestLogin:
++    def _register(self, client, email="u@example.com", password="password123"):
++        client.post(
++            "/api/auth/register",
++            json={"name": "User", "email": email, "password": password},
++        )
++
++    def test_login_success_sets_cookie(self, client):
++        self._register(client)
++        # حذف الكوكي من عملية التسجيل لضمان اختبار مستقل
++        client.cookies.clear()
++        r = client.post(
++            "/api/auth/login",
++            data={"username": "u@example.com", "password": "password123"},
++        )
++        assert r.status_code == 200, r.text
++        assert r.json()["access_token"]
++        assert ACCESS_COOKIE_NAME in r.cookies
++
++    def test_login_wrong_password(self, client):
++        self._register(client)
++        r = client.post(
++            "/api/auth/login",
++            data={"username": "u@example.com", "password": "WRONG"},
++        )
++        assert r.status_code == 401
++
++    def test_login_unknown_email(self, client):
++        r = client.post(
++            "/api/auth/login",
++            data={"username": "nobody@example.com", "password": "password123"},
++        )
++        assert r.status_code == 401
++
++    def test_me_requires_auth(self, client):
++        client.cookies.clear()
++        assert client.get("/api/auth/me").status_code == 401
++
++    def test_me_works_via_cookie(self, client):
++        self._register(client, email="me@example.com")
++        # الكوكي محفوظ تلقائياً في جلسة TestClient
++        r = client.get("/api/auth/me")
++        assert r.status_code == 200
++        assert r.json()["email"] == "me@example.com"
++
++    def test_logout_clears_cookie(self, client):
++        self._register(client, email="out@example.com")
++        r = client.post("/api/auth/logout")
++        assert r.status_code == 200
++        # بعد الخروج: /me يجب أن يفشل
++        client.cookies.clear()
++        assert client.get("/api/auth/me").status_code == 401

@@ -1,0 +1,242 @@
+diff --git a/src/api/client.js b/src/api/client.js
+index 27b4c01..8fd8a95 100644
+--- a/src/api/client.js
++++ b/src/api/client.js
+@@ -1,29 +1,20 @@
+ /**
+- * API Client — يعمل في التطوير والإنتاج
++ * API Client — يعتمد على httpOnly cookie للمصادقة (وليس localStorage).
++ * كل الطلبات ترسل credentials حتى يُرفَق الكوكي تلقائياً.
+  */
+ 
+-// في الإنتاج: VITE_API_URL = رابط Render
+-// في التطوير: فارغ (الـ proxy في vite.config.js يتولى الأمر)
+ const API_BASE = import.meta.env.VITE_API_URL
+   ? `${import.meta.env.VITE_API_URL}/api`
+   : "/api";
+ 
+-function getToken() {
+-  return localStorage.getItem("sawa_token");
+-}
+-
+-function authHeaders() {
+-  const token = getToken();
+-  return token ? { Authorization: `Bearer ${token}` } : {};
+-}
+-
+ async function request(method, path, body, isFormData = false) {
+-  const headers = { ...authHeaders() };
++  const headers = {};
+   if (!isFormData && body) headers["Content-Type"] = "application/json";
+ 
+   const res = await fetch(`${API_BASE}${path}`, {
+     method,
+     headers,
++    credentials: "include", // ← مهم: يُرسل httpOnly cookie
+     body: isFormData ? body : body ? JSON.stringify(body) : undefined,
+   });
+ 
+@@ -46,14 +37,18 @@ export const authAPI = {
+     form.append("password", password);
+     const res = await fetch(`${API_BASE}/auth/login`, {
+       method: "POST",
+-      headers: authHeaders(),
++      credentials: "include",
+       body: form,
+     });
+-    if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || "فشل");
++    if (!res.ok) {
++      const err = await res.json().catch(() => ({}));
++      throw new Error(err.detail || "فشل تسجيل الدخول");
++    }
+     return res.json();
+   },
+ 
+-  me: () => request("GET", "/auth/me"),
++  logout: () => request("POST", "/auth/logout"),
++  me:     () => request("GET",  "/auth/me"),
+ };
+ 
+ // ── Videos ───────────────────────────────────────────
+@@ -67,8 +62,7 @@ export const videosAPI = {
+ 
+       const xhr = new XMLHttpRequest();
+       xhr.open("POST", `${API_BASE}/videos/upload`);
+-      const token = getToken();
+-      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
++      xhr.withCredentials = true; // ← يُرسل httpOnly cookie
+ 
+       if (onProgress) {
+         xhr.upload.onprogress = (e) => {
+@@ -93,37 +87,31 @@ export const videosAPI = {
+   getByToken:  (tok) => request("GET", `/videos/share/${tok}`),
+   deleteVideo: (id)  => request("DELETE", `/videos/${id}`),
+ 
+-  // روابط البث الآمنة — تمر عبر التحقق من الصلاحيات على الخادم
+-  streamUrl:       (videoId)  => `${API_BASE}/videos/${videoId}/stream`,
+-  shareStreamUrl:  (token)    => `${API_BASE}/videos/share/${token}/stream`,
+-};
+-
+-// ── Transcripts ───────────────────────────────────────
+-export const transcriptAPI = {
+-  get:    (videoId)       => request("GET",   `/transcripts/${videoId}`),
+-  edit:   (videoId, data) => request("PATCH", `/transcripts/${videoId}`, data),
+-  retry:  (videoId)       => request("POST",  `/transcripts/${videoId}/retry`),
+-  export: (videoId, fmt)  => `${API_BASE}/transcripts/${videoId}/export?fmt=${fmt}`,
++  streamUrl:   (id)  => `${API_BASE}/videos/${id}/stream`,
++  shareStreamUrl: (tok) => `${API_BASE}/videos/share/${tok}/stream`,
+ };
+ 
+-// ── AI Features ───────────────────────────────────────
+-export const aiAPI = {
+-  translate:  (videoId)             => request("POST", `/transcripts/${videoId}/translate`),
+-  summarize:  (videoId)             => request("POST", `/transcripts/${videoId}/summarize`),
+-  diarize:    (videoId, n)          => request("POST", `/transcripts/${videoId}/diarize${n?`?num_speakers=${n}`:""}`),
+-  exportUrl:  (videoId, fmt)        => `${API_BASE}/transcripts/${videoId}/export?fmt=${fmt}`,
++// ── Transcripts ──────────────────────────────────────
++export const transcriptsAPI = {
++  get:        (id)   => request("GET",   `/transcripts/${id}`),
++  update:     (id, b)=> request("PATCH", `/transcripts/${id}`, b),
++  retry:      (id)   => request("POST",  `/transcripts/${id}/retry`),
++  translate:  (id, lang) => request("POST", `/transcripts/${id}/translate`, { target_lang: lang }),
++  summarize:  (id)   => request("POST",  `/transcripts/${id}/summarize`),
++  diarize:    (id)   => request("POST",  `/transcripts/${id}/diarize`),
++  exportUrl:  (id, fmt) => `${API_BASE}/transcripts/${id}/export?format=${fmt}`,
+ };
+ 
+-// ── Payments ──────────────────────────────────────────
++// ── Payments ─────────────────────────────────────────
+ export const paymentsAPI = {
+-  getPlans:  ()     => request("GET",  "/payments/plans"),
+-  getStatus: ()     => request("GET",  "/payments/status"),
+-  create:    (plan) => request("POST", "/payments/create", { plan }),
+-  demo:      (plan) => request("POST", `/payments/demo-activate/${plan}`),
++  getPlans:  ()      => request("GET",  "/payments/plans"),
++  getStatus: ()      => request("GET",  "/payments/status"),
++  create:    (plan)  => request("POST", "/payments/create", { plan }),
++  demoActivate: (p)  => request("POST", `/payments/demo-activate/${p}`),
+ };
+ 
+-// ── Search ────────────────────────────────────────────
++// ── Search ───────────────────────────────────────────
+ export const searchAPI = {
+-  search:  (q)    => request("GET", `/search?q=${encodeURIComponent(q)}`),
+-  suggest: (q)    => request("GET", `/search/suggest?q=${encodeURIComponent(q)}`),
++  query:   (q, limit=20) => request("GET", `/search?q=${encodeURIComponent(q)}&limit=${limit}`),
++  suggest: (q)           => request("GET", `/search/suggest?q=${encodeURIComponent(q)}`),
+ };
+diff --git a/src/hooks/useAuth.jsx b/src/hooks/useAuth.jsx
+index 780c935..e8f6d13 100644
+--- a/src/hooks/useAuth.jsx
++++ b/src/hooks/useAuth.jsx
+@@ -1,41 +1,40 @@
+ import { createContext, useContext, useState, useEffect } from "react";
+ import { authAPI } from "../api/client";
+ 
++/**
++ * جلسة المستخدم عبر httpOnly cookie:
++ * - لا يوجد أي توكن مخزَّن في localStorage (يحمي من XSS).
++ * - نتحقق من الجلسة عند الإقلاع باستدعاء /auth/me (يعتمد على الكوكي تلقائياً).
++ * - login/register يضعان الكوكي من الخادم؛ نقرأ فقط بيانات المستخدم من الرد.
++ * - logout يستدعي الخادم ليمسح الكوكي.
++ */
+ const AuthContext = createContext(null);
+ 
+ export function AuthProvider({ children }) {
+   const [user, setUser]       = useState(null);
+   const [loading, setLoading] = useState(true);
+ 
+-  // عند فتح التطبيق: تحقق من الـ token المحفوظ
+   useEffect(() => {
+-    const token = localStorage.getItem("sawa_token");
+-    if (token) {
+-      authAPI.me()
+-        .then(setUser)
+-        .catch(() => localStorage.removeItem("sawa_token"))
+-        .finally(() => setLoading(false));
+-    } else {
+-      setLoading(false);
+-    }
++    authAPI.me()
++      .then(setUser)
++      .catch(() => setUser(null))
++      .finally(() => setLoading(false));
+   }, []);
+ 
+   const login = async (email, password) => {
+     const data = await authAPI.login(email, password);
+-    localStorage.setItem("sawa_token", data.access_token);
+     setUser(data.user);
+     return data;
+   };
+ 
+   const register = async (name, email, password) => {
+     const data = await authAPI.register(name, email, password);
+-    localStorage.setItem("sawa_token", data.access_token);
+     setUser(data.user);
+     return data;
+   };
+ 
+-  const logout = () => {
+-    localStorage.removeItem("sawa_token");
++  const logout = async () => {
++    try { await authAPI.logout(); } catch { /* ignore */ }
+     setUser(null);
+   };
+ 
+diff --git a/src/pages/Pricing.jsx b/src/pages/Pricing.jsx
+index 8a91905..c351d17 100644
+--- a/src/pages/Pricing.jsx
++++ b/src/pages/Pricing.jsx
+@@ -35,10 +35,10 @@ export default function Pricing() {
+     setError("");
+ 
+     try {
+-      const token = localStorage.getItem("sawa_token");
+       const res = await fetch("/api/payments/create", {
++        credentials: "include",
+         method: "POST",
+-        headers: { "Content-Type":"application/json", "Authorization":`Bearer ${token}` },
++        headers: { "Content-Type":"application/json" },
+         body: JSON.stringify({ plan: planId }),
+       });
+       const data = await res.json();
+@@ -47,8 +47,9 @@ export default function Pricing() {
+       if (data.mode === "development") {
+         // وضع التطوير — فعّل تجريبياً
+         const demoRes = await fetch(`/api/payments/demo-activate/${planId}`, {
++        credentials: "include",
+           method: "POST",
+-          headers: { "Authorization": `Bearer ${token}` },
++          
+         });
+         if (demoRes.ok) {
+           alert(`✅ تم تفعيل خطة ${planId} تجريبياً!\nفي الإنتاج سيتم التوجيه لبوابة الدفع.`);
+diff --git a/src/pages/Search.jsx b/src/pages/Search.jsx
+index 2acba89..8e22821 100644
+--- a/src/pages/Search.jsx
++++ b/src/pages/Search.jsx
+@@ -30,10 +30,9 @@ export default function Search() {
+     setSuggestions([]);
+ 
+     try {
+-      const token = localStorage.getItem("sawa_token");
+       const res   = await fetch(
+         `/api/search?q=${encodeURIComponent(q.trim())}`,
+-        { headers: { Authorization: `Bearer ${token}` } }
++        { credentials: "include" }
+       );
+       if (!res.ok) throw new Error((await res.json()).detail || "فشل البحث");
+       setResults(await res.json());
+@@ -53,10 +52,9 @@ export default function Search() {
+     if (q.length < 2) { setSuggestions([]); return; }
+     debounceRef.current = setTimeout(async () => {
+       try {
+-        const token = localStorage.getItem("sawa_token");
+         const res   = await fetch(
+           `/api/search/suggest?q=${encodeURIComponent(q)}`,
+-          { headers: { Authorization: `Bearer ${token}` } }
++          { credentials: "include" }
+         );
+         if (res.ok) setSuggestions((await res.json()).suggestions);
+       } catch { /* تجاهل */ }

@@ -17,8 +17,9 @@ from app.config import settings
 from app.database import get_db, User, RefreshToken
 
 # ── إعداد التشفير ────────────────────────────────────
-pwd_context    = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme  = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/auth/login", auto_error=False)
 
 
 # ══════════════════════════════════════════════════════
@@ -26,6 +27,7 @@ oauth2_scheme  = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fal
 # ══════════════════════════════════════════════════════
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
+
 
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
@@ -37,7 +39,8 @@ def verify_password(plain: str, hashed: str) -> bool:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + (
-        expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expires_delta or timedelta(
+            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     to_encode.update({"exp": expire, "type": "access"})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -65,7 +68,8 @@ def create_password_reset_token(user_id: str) -> str:
 
 def decode_token(token: str) -> Optional[dict]:
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY,
+                             algorithms=[settings.ALGORITHM])
         return payload
     except JWTError:
         return None
@@ -74,7 +78,12 @@ def decode_token(token: str) -> Optional[dict]:
 # ══════════════════════════════════════════════════════
 #  كوكيز المساعدة
 # ══════════════════════════════════════════════════════
-COOKIE_SAMESITE = "lax"
+# COOKIE_SAMESITE = "lax"
+
+
+# بعد
+COOKIE_SAMESITE = "none" if settings.COOKIE_SECURE else "lax"
+
 ACCESS_COOKIE_MAX_AGE = 60 * 15          # 15 دقيقة
 REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 يوم
 

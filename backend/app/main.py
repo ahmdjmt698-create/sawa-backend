@@ -17,8 +17,6 @@ from app.database import engine, Base
 from app.routers import videos, auth, transcripts, payments, search, comments, analytics
 from app.config import settings
 
-Base.metadata.create_all(bind=engine)
-
 # ── Rate Limiter (shared across routers) ─────────────
 
 app = FastAPI(

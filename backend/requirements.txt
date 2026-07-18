@@ -21,3 +21,4 @@ google-generativeai
 itsdangerous
 fastapi-mail
 ffmpeg-python
+alembic

@@ -9,7 +9,7 @@ services:
     plan: starter       # $7/شهر — 2GB RAM — يكفي لـ Whisper base
     
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: alembic upgrade head && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
     
     # متغيرات البيئة — ستضيفها يدوياً في لوحة Render
     envVars:

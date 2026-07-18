@@ -61,14 +61,23 @@ export default function Recorder({ onUploadDone }) {
         if (micStream) {
           const ctx  = new AudioContext();
           const dest = ctx.createMediaStreamDestination();
-          const scr  = ctx.createMediaStreamSource(screenStream);
-          const mic  = ctx.createMediaStreamSource(micStream);
-          scr.connect(dest);
+          const screenAudioTracks = screenStream.getAudioTracks();
+
+          if (screenAudioTracks.length > 0) {
+            const scr = ctx.createMediaStreamSource(screenStream);
+            scr.connect(dest);
+          }
+
+          const mic = ctx.createMediaStreamSource(micStream);
           mic.connect(dest);
+
+          const audioTracks = dest.stream.getAudioTracks().length > 0
+            ? dest.stream.getAudioTracks()
+            : micStream.getAudioTracks();
 
           combinedStream = new MediaStream([
             ...screenStream.getVideoTracks(),
-            ...dest.stream.getAudioTracks(),
+            ...audioTracks,
           ]);
         } else {
           combinedStream = screenStream;

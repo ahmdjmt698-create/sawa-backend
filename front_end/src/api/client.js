@@ -103,6 +103,9 @@ export const videosAPI = {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `${API_BASE}/videos/upload`);
       xhr.withCredentials = true;
+      if (csrfToken) {
+        xhr.setRequestHeader("X-CSRF-Token", csrfToken);
+      }
 
       if (onProgress) {
         xhr.upload.onprogress = (e) => {
@@ -117,7 +120,9 @@ export const videosAPI = {
           catch { reject(new Error("فشل الرفع")); }
         }
       };
-      xhr.onerror = () => reject(new Error("خطأ في الشبكة"));
+      xhr.onerror = () => reject(new Error("خطأ في الشبكة — تحقق من اتصالك"));
+      xhr.ontimeout = () => reject(new Error("انتهت مهلة الرفع — جرب تسجيلاً أقصر"));
+      xhr.timeout = 300000;
       xhr.send(form);
     });
   },

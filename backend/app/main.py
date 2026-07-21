@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from app.limiter import limiter
 from app.exceptions import APIException
@@ -78,6 +80,8 @@ async def api_exception_handler(request: Request, exc: APIException):
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
 
 frontend_url = os.getenv("FRONTEND_URL", "")
@@ -85,14 +89,44 @@ if frontend_url:
     ALLOWED_ORIGINS.append(frontend_url)
     ALLOWED_ORIGINS.append(frontend_url.rstrip("/"))
 
+# Additional origins from comma-separated env var
+extra_origins = os.getenv("CORS_ORIGINS", "")
+if extra_origins:
+    for origin in extra_origins.split(","):
+        origin = origin.strip()
+        if origin:
+            ALLOWED_ORIGINS.append(origin)
+
+cors_origins = list({o for o in ALLOWED_ORIGINS if o})
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o for o in ALLOWED_ORIGINS if o],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
     expose_headers=["Set-Cookie"],
 )
+
+
+# ── CORS Safety Net ──────────────────────────────────
+# If an unhandled exception bypasses CORSMiddleware, this middleware
+# ensures the CORS headers are still present on the error response.
+class CORSSafetyMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin", "")
+        try:
+            response = await call_next(request)
+        except Exception:
+            response = Response(status_code=500, content="Internal Server Error")
+
+        if origin and origin in cors_origins:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Vary"] = "Origin"
+        return response
+
+app.add_middleware(CORSSafetyMiddleware)
 
 # ── Upload Dir (ensure exists) ────────────────────────
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

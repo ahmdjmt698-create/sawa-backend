@@ -122,11 +122,21 @@ async def upload_video(
     filename  = f"{video_id}.{ext}"
     file_path = os.path.join(settings.UPLOAD_DIR, filename)
 
+    max_bytes = settings.MAX_FILE_SIZE_MB * 1024 * 1024
+    total_bytes = 0
     async with aiofiles.open(file_path, "wb") as buffer:
         while chunk := await file.read(1024 * 1024):
+            total_bytes += len(chunk)
+            if total_bytes > max_bytes:
+                await buffer.close()
+                os.remove(file_path)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"الملف أكبر من الحد الأقصى ({settings.MAX_FILE_SIZE_MB} ميجابايت)",
+                )
             await buffer.write(chunk)
 
-    file_size = os.path.getsize(file_path)
+    file_size = total_bytes
 
     video = Video(
         id          = video_id,

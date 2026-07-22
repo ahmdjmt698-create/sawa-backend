@@ -19,7 +19,7 @@ from app.database import get_db, Video, Transcript, TranscriptStatus, User
 from app.exceptions import APIException
 from app.auth import get_current_user, require_auth, hash_password, verify_password
 from app.config import settings
-from app.transcription import transcribe_audio, extract_audio_if_needed
+from app.transcription import transcribe_audio, extract_audio_if_needed, denoise_audio
 
 router = APIRouter()
 
@@ -54,7 +54,7 @@ class UnlockShareRequest(BaseModel):
 # ══════════════════════════════════════════════════════
 #  مهمة خلفية: التفريغ الصوتي
 # ══════════════════════════════════════════════════════
-def run_transcription_task(video_id: str, file_path: str, language: str):
+def run_transcription_task(video_id: str, file_path: str, language: str, noise_reduction: bool = False):
     from app.database import Transcript, Video, TranscriptStatus, SessionLocal
     import json
 
@@ -65,10 +65,19 @@ def run_transcription_task(video_id: str, file_path: str, language: str):
         return
 
     try:
+        audio_path = extract_audio_if_needed(file_path)
+
+        if noise_reduction:
+            transcript.status = TranscriptStatus.DENOISING
+            db.commit()
+            try:
+                audio_path = denoise_audio(audio_path)
+            except Exception as denoise_err:
+                import logging
+                logging.getLogger(__name__).warning(f"⚠️ فشل تنظيف الصوت، التفريغ بدون تنظيف: {denoise_err}")
+
         transcript.status = TranscriptStatus.PROCESSING
         db.commit()
-
-        audio_path = extract_audio_if_needed(file_path)
         result = transcribe_audio(audio_path, language=language)
 
         transcript.full_text         = result["full_text"]
@@ -101,6 +110,7 @@ async def upload_video(
     description: Optional[str] = Form(None),
     dialect:     str           = Form("ar"),
     mode:        str           = Form("screen"),
+    noise_reduction: bool      = Form(False),
     db:          Session       = Depends(get_db),
     current_user: User         = Depends(require_auth),
 ):
@@ -160,6 +170,7 @@ async def upload_video(
         video_id  = video_id,
         file_path = file_path,
         language  = dialect if len(dialect) == 2 else "ar",
+        noise_reduction = noise_reduction,
     )
 
     response = VideoResponse.model_validate(video)

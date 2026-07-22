@@ -39,7 +39,8 @@ async function request(method, path, body, isFormData = false, isRetry = false) 
   });
 
   // تجديد التوكن التلقائي عند 401
-  if (res.status === 401 && !isRetry && !path.includes("/auth/")) {
+  const noRefreshPaths = ["/auth/login", "/auth/register", "/auth/refresh"];
+  if (res.status === 401 && !isRetry && !noRefreshPaths.some(p => path.includes(p))) {
     try {
       const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
         method: "POST",
@@ -92,13 +93,14 @@ export const authAPI = {
 
 // ── Videos ───────────────────────────────────────────
 export const videosAPI = {
-  upload: (file, title, dialect = "ar", mode = "screen", onProgress) => {
+  upload: (file, title, dialect = "ar", mode = "screen", onProgress, noiseReduction = false) => {
     return new Promise((resolve, reject) => {
       const form = new FormData();
       form.append("file", file);
       form.append("title", title);
       form.append("dialect", dialect);
       form.append("mode", mode);
+      if (noiseReduction) form.append("noise_reduction", "true");
 
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `${API_BASE}/videos/upload`);

@@ -38,6 +38,7 @@ def get_db():
 # ══════════════════════════════════════════════════════
 class TranscriptStatus(str, enum.Enum):
     PENDING = "pending"     # في الانتظار
+    DENOISING = "denoising"   # جاري تنظيف الصوت
     PROCESSING = "processing"  # قيد المعالجة
     DONE = "done"        # اكتمل
     FAILED = "failed"      # فشل

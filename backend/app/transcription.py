@@ -288,6 +288,38 @@ def transcribe_audio(
 
 
 # ══════════════════════════════════════════════════════
+#  تقليل الضوضاء بـ ffmpeg afftdn
+# ══════════════════════════════════════════════════════
+def denoise_audio(input_path: str) -> str:
+    """
+    ينظف الصوت باستخدام فلتر afftdn في ffmpeg.
+    يُنشئ ملفاً جديداً بجانب الأصلي ويعيد مساره.
+    """
+    import subprocess
+
+    input_p = Path(input_path)
+    denoised_path = input_p.with_name(f"{input_p.stem}_denoised{input_p.suffix}")
+
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-af", "afftdn=nf=-25,highpass=f=80,lowpass=f=12000",
+        "-ar", "16000",
+        str(denoised_path),
+    ]
+
+    logger.info(f"🔇 بدء تنظيف الصوت: {input_path}")
+    result = subprocess.run(cmd, capture_output=True, timeout=600)
+
+    if result.returncode != 0:
+        stderr = result.stderr.decode(errors="replace")
+        logger.error(f"❌ فشل تنظيف الصوت: {stderr[-500:]}")
+        raise RuntimeError(f"ffmpeg denoise failed: {stderr[-200:]}")
+
+    logger.info(f"✅ تم تنظيف الصوت: {denoised_path}")
+    return str(denoised_path)
+
+
+# ══════════════════════════════════════════════════════
 #  استخراج الصوت من الفيديو
 # ══════════════════════════════════════════════════════
 def extract_audio_if_needed(video_path: str) -> str:

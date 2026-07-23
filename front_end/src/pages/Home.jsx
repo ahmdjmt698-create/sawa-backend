@@ -4,6 +4,7 @@
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 /* ─────────────────────────────────────────────────────
    Hook: تتبع موضع الماوس للـ 3D tilt
@@ -247,15 +248,6 @@ function ProductMockup() {
 /* ─────────────────────────────────────────────────────
    Component: بطاقة ميزة
 ───────────────────────────────────────────────────── */
-const FEATURES = [
-  { icon:"🎙️", title:"تسجيل فوري", desc:"بضغطة واحدة تبدأ تسجيل شاشتك والصوت معاً — بدون تثبيت أي برنامج", color:"#34D399" },
-  { icon:"🧠", title:"تفريغ عربي ذكي", desc:"Whisper مدرَّب على كل اللهجات العربية يفرّغ كل كلمة بدقة خارقة", color:"#818CF8" },
-  { icon:"🔍", title:"بحث في الصوت", desc:"ابحث عن أي كلمة في كل تسجيلاتك — يجد لك اللحظة بالثانية", color:"#F59E0B" },
-  { icon:"🌍", title:"ترجمة + تلخيص", desc:"بضغطة زر يترجم Claude النص للإنجليزية أو يلخصه في نقاط رئيسية", color:"#F472B6" },
-  { icon:"📄", title:"تصدير متعدد", desc:"حمّل النص كـ Word أو SRT للفيديوهات أو JSON للمطورين", color:"#60A5FA" },
-  { icon:"🔒", title:"خصوصية تامة", desc:"ملفاتك على سيرفرك أو السحابة — لا أحد يرى بياناتك", color:"#C084FC" },
-];
-
 function FeatureCard({ icon, title, desc, color, delay = 0 }) {
   const [ref, vis] = useReveal();
   const [hovered, setHovered] = useState(false);
@@ -350,7 +342,17 @@ function CompareRow({ feature, sawa, loom, delay }) {
    Main: Home Page
 ───────────────────────────────────────────────────── */
 export default function Home() {
+  const { t } = useTranslation();
   const [mousePos, setMousePos] = useState({ x: 0.5, y: 0.5 });
+
+  const FEATURES = [
+    { icon:"🎙️", title: t("home.feature_recording"), desc: t("home.feature_recording_desc"), color:"#34D399" },
+    { icon:"🧠", title: t("home.feature_transcription"), desc: t("home.feature_transcription_desc"), color:"#818CF8" },
+    { icon:"🔍", title: t("home.feature_search"), desc: t("home.feature_search_desc"), color:"#F59E0B" },
+    { icon:"🌍", title: t("home.feature_ai"), desc: t("home.feature_ai_desc"), color:"#F472B6" },
+    { icon:"📄", title: t("home.feature_export"), desc: t("home.feature_export_desc"), color:"#60A5FA" },
+    { icon:"🔒", title: t("home.feature_privacy"), desc: t("home.feature_privacy_desc"), color:"#C084FC" },
+  ];
   const heroRef = useRef(null);
   const [heroRef2, heroVis] = useReveal();
 
@@ -390,28 +392,27 @@ export default function Home() {
               borderRadius:20, padding:"6px 14px", marginBottom:24, fontSize:12, color:"#34D399",
             }}>
               <span style={{ width:7, height:7, borderRadius:"50%", background:"#34D399", animation:"pulse-ring 1.5s infinite" }} />
-              الأول عربياً في تسجيل الشاشة + التفريغ الذكي
+              {t("home.badge")}
             </div>
 
             <h1 style={{
               fontSize:"clamp(36px, 5vw, 58px)", fontWeight:900, lineHeight:1.15,
               marginBottom:20, letterSpacing:"-0.5px",
             }}>
-              <span style={{ color:"#fff" }}>سجّل شاشتك</span>
+              <span style={{ color:"#fff" }}>{t("home.hero_title_1")}</span>
               <br />
               <span style={{
                 background:"linear-gradient(90deg, #34D399, #818CF8)",
                 WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
               }}>
-                فرّغ صوتك
+                {t("home.hero_title_2")}
               </span>
               <br />
-              <span style={{ color:"#fff" }}>بالعربية</span>
+              <span style={{ color:"#fff" }}>{t("home.hero_title_3")}</span>
             </h1>
 
             <p style={{ fontSize:16, color:"#888", lineHeight:1.8, marginBottom:32, maxWidth:440 }}>
-              أول أداة تسجيل شاشة عربية مع تفريغ ذكي يدعم كل اللهجات.
-              وفّر ساعات من كتابة التقارير.
+              {t("home.hero_desc")}
             </p>
 
             {/* موجة صوت */}
@@ -431,7 +432,7 @@ export default function Home() {
                 onMouseLeave={(e)=>e.currentTarget.style.boxShadow="0 0 30px #34D39940"}
               >
                 <span style={{ fontSize:18 }}>⏺</span>
-                ابدأ التسجيل — مجاناً
+                {t("home.cta_start")}
               </Link>
               <Link to="/auth" style={{
                 display:"inline-flex", alignItems:"center", gap:8,
@@ -443,12 +444,12 @@ export default function Home() {
                 onMouseEnter={(e)=>e.currentTarget.style.borderColor="#34D39966"}
                 onMouseLeave={(e)=>e.currentTarget.style.borderColor="#ffffff20"}
               >
-                سجّل حساباً
+                {t("home.cta_register")}
               </Link>
             </div>
 
             <p style={{ fontSize:12, color:"#555", marginTop:14 }}>
-              ✓ لا بطاقة ائتمان · ✓ 25 تسجيل مجاناً · ✓ لا تثبيت
+              {t("home.hero_footer")}
             </p>
           </div>
 
@@ -470,9 +471,9 @@ export default function Home() {
             overflow:"hidden",
           }}>
             {[
-              { value:400, suffix:"M+", label:"مستخدم إنترنت عربي", color:"#34D399", delay:0 },
-              { value:99,  suffix:"%",  label:"دقة Whisper large-v3", color:"#818CF8", delay:150 },
-              { value:7,   suffix:"$",  label:"شهرياً فقط للـ Pro",   color:"#F59E0B", delay:300 },
+              { value:400, suffix:"M+", label:t("home.stat_users_label"), color:"#34D399", delay:0 },
+              { value:99,  suffix:"%",  label:t("home.stat_accuracy_label"), color:"#818CF8", delay:150 },
+              { value:7,   suffix:"$",  label:t("home.stat_price_label"),   color:"#F59E0B", delay:300 },
             ].map((s, i) => (
               <div key={i} style={{ padding:"28px 20px", borderRight: i < 2 ? "1px solid #1e1e30" : "none" }}>
                 <Stat {...s} />
@@ -489,13 +490,13 @@ export default function Home() {
         <div style={{ maxWidth:1100, margin:"0 auto" }}>
           <div style={{ textAlign:"center", marginBottom:48 }}>
             <div style={{ fontSize:12, color:"#818CF8", letterSpacing:3, marginBottom:12, textTransform:"uppercase" }}>
-              الميزات
+              {t("home.stats_title")}
             </div>
             <h2 style={{ fontSize:"clamp(26px, 4vw, 38px)", fontWeight:900, marginBottom:12 }}>
-              كل ما تحتاجه في مكان واحد
+              {t("home.stats_subtitle")}
             </h2>
             <p style={{ color:"#666", fontSize:15, maxWidth:500, margin:"0 auto" }}>
-              منتج واحد يحل مشكلة حقيقية يعانيها ملايين العرب يومياً
+              {t("home.stats_desc")}
             </p>
           </div>
 
@@ -512,10 +513,10 @@ export default function Home() {
         <div style={{ maxWidth:600, margin:"0 auto" }}>
           <div style={{ textAlign:"center", marginBottom:36 }}>
             <div style={{ fontSize:12, color:"#F87171", letterSpacing:3, marginBottom:12, textTransform:"uppercase" }}>
-              لماذا سوى؟
+              {t("home.compare_title")}
             </div>
             <h2 style={{ fontSize:"clamp(24px, 3vw, 34px)", fontWeight:900 }}>
-              ما يفشل فيه Loom نجحنا فيه
+              {t("home.compare_subtitle")}
             </h2>
           </div>
 
@@ -524,24 +525,19 @@ export default function Home() {
               <table style={{ width:"100%", borderCollapse:"collapse" }}>
                 <thead>
                   <tr style={{ borderBottom:"1px solid #1e1e30" }}>
-                    <th style={{ textAlign:"right", padding:"14px 16px", fontSize:12, color:"#555" }}>الميزة</th>
+                    <th style={{ textAlign:"right", padding:"14px 16px", fontSize:12, color:"#555" }}>{t("home.compare_header_feature")}</th>
                     <th style={{ textAlign:"center", padding:"14px", fontSize:15, color:"#34D399", fontWeight:900 }}>
-                      سوى ✦
+                      {t("home.compare_header_sawa")}
                     </th>
-                    <th style={{ textAlign:"center", padding:"14px", fontSize:13, color:"#555" }}>Loom</th>
+                    <th style={{ textAlign:"center", padding:"14px", fontSize:13, color:"#555" }}>{t("home.compare_header_loom")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {[
-                    ["تفريغ عربي دقيق",     true,  false],
-                    ["دعم اللهجات المحلية", true,  false],
-                    ["واجهة RTL كاملة",     true,  false],
-                    ["سعر مناسب عربياً",    true,  false],
-                    ["بحث عميق في الصوت",   true,  false],
-                    ["ترجمة + تلخيص AI",    true,  false],
-                    ["تسجيل الشاشة",        true,  true],
-                    ["مشاركة برابط",        true,  true],
-                  ].map(([f, s, l], i) => <CompareRow key={f} feature={f} sawa={s} loom={l} delay={i * 60} />)}
+                  {t("home.compare_features", { returnObjects: true }).map((f, i) => {
+                    const loomValues = [false, false, false, false, false, false, true, true];
+                    const sawaValues = [true, true, true, true, true, true, true, true];
+                    return <CompareRow key={i} feature={f} sawa={sawaValues[i]} loom={loomValues[i]} delay={i * 60} />;
+                  })}
                 </tbody>
               </table>
             </div>
@@ -556,16 +552,16 @@ export default function Home() {
         <div style={{ maxWidth:900, margin:"0 auto" }}>
           <div style={{ textAlign:"center", marginBottom:48 }}>
             <h2 style={{ fontSize:"clamp(24px,3vw,34px)", fontWeight:900, marginBottom:8 }}>
-              سعر واضح. بدون مفاجآت.
+              {t("home.pricing_title")}
             </h2>
-            <p style={{ color:"#666" }}>ادفع بالفيزا أو الكريبتو — تصلك الميزات فوراً</p>
+            <p style={{ color:"#666" }}>{t("home.pricing_subtitle")}</p>
           </div>
 
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))", gap:14 }}>
             {[
-              { name:"مجاني",  price:0,  color:"#555",    period:"",       features:["25 تسجيل","5 دقائق","تفريغ أساسي"], popular:false },
-              { name:"Pro",    price:7,  color:"#34D399", period:"/شهر",   features:["غير محدود","ساعة كاملة","ترجمة+تلخيص AI","DOCX+SRT"], popular:true },
-              { name:"Team",   price:20, color:"#818CF8", period:"/شهر",   features:["كل Pro","5 أعضاء","Workspace","API"], popular:false },
+              { name:t("pricing.free_name"),  price:0,  color:"#555",    period:"",       features:[t("home.feature_recording"), t("home.feature_search"), t("home.feature_privacy")], popular:false },
+              { name:t("pricing.pro_name"),    price:7,  color:"#34D399", period:"/شهر",   features:[t("home.feature_ai"), t("home.feature_export"), t("home.feature_transcription"), t("home.feature_privacy")], popular:true },
+              { name:t("pricing.team_name"),   price:20, color:"#818CF8", period:"/شهر",   features:[t("home.feature_recording"), t("home.feature_search"), t("home.feature_ai"), t("home.feature_export")], popular:false },
             ].map((p, i) => {
               const [ref, vis] = useReveal();
               const [hov, setHov] = useState(false);
@@ -592,7 +588,7 @@ export default function Home() {
                           background:`linear-gradient(90deg, #34D399, #818CF8)`,
                           color:"#000", borderRadius:20, padding:"3px 14px",
                           fontSize:11, fontWeight:900,
-                        }}>✦ الأكثر شعبية</div>
+                        }}>{t("home.popular")}</div>
                       )}
                       <div style={{ color:p.color, fontWeight:800, fontSize:15, marginBottom:10 }}>{p.name}</div>
                       <div style={{ marginBottom:20 }}>
@@ -617,7 +613,7 @@ export default function Home() {
                           boxShadow: p.popular ? `0 0 20px ${p.color}30` : "none",
                         }}
                       >
-                        {p.price === 0 ? "ابدأ مجاناً" : "اشترك الآن"}
+                        {p.price === 0 ? t("home.start_free") : t("home.subscribe_now")}
                       </Link>
                     </div>
                   </Card3D>
@@ -643,11 +639,10 @@ export default function Home() {
             <div style={{ position:"relative" }}>
               <div style={{ fontSize:40, marginBottom:16 }}>🚀</div>
               <h2 style={{ fontSize:26, fontWeight:900, marginBottom:12 }}>
-                جاهز تبدأ؟
+                {t("home.cta_title")}
               </h2>
               <p style={{ color:"#888", marginBottom:28, lineHeight:1.7 }}>
-                انضم الآن وسجّل أول مقطعك مجاناً.
-                لا بطاقة ائتمانية، لا تعقيدات.
+                {t("home.cta_desc")}
               </p>
               <Link to="/auth?mode=register" style={{
                 display:"inline-flex", alignItems:"center", gap:10,
@@ -656,7 +651,7 @@ export default function Home() {
                 fontWeight:900, fontSize:16, textDecoration:"none",
                 boxShadow:"0 0 40px #34D39940",
               }}>
-                ابدأ مجاناً الآن ←
+                {t("home.cta_button")}
               </Link>
             </div>
           </div>
@@ -668,7 +663,7 @@ export default function Home() {
         <div style={{ fontSize:22, fontWeight:900, background:"linear-gradient(90deg, #34D399, #818CF8)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", marginBottom:6 }}>
           سوى
         </div>
-        <div style={{ fontSize:12, color:"#444" }}>صُنع بـ ❤️ للمستخدم العربي</div>
+        <div style={{ fontSize:12, color:"#444" }}>{t("home.footer_made")}</div>
       </footer>
     </div>
   );

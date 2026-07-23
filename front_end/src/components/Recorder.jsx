@@ -66,7 +66,7 @@ export default function Recorder({ onUploadDone }) {
       setState("done");
       if (onUploadDone) onUploadDone(video);
     } catch (err) {
-      setError(`فشل الرفع: ${err.message}`);
+      setError(`${t("recorder.error_upload_failed")}${err.message}`);
       setState("idle");
     }
   }, [title, dialect, noiseReduction, onUploadDone]);
@@ -78,7 +78,7 @@ export default function Recorder({ onUploadDone }) {
 
     const ext = file.name.split(".").pop()?.toLowerCase();
     if (!ext || !ALLOWED_EXTENSIONS.includes(ext)) {
-      setError(`نوع الملف غير مدعوم (${ext}). الأنواع المقبولة: ${ALLOWED_EXTENSIONS.join(", ")}`);
+      setError(t("recorder.error_file_not_supported", { ext, types: ALLOWED_EXTENSIONS.join(", ") }));
       return;
     }
     uploadFile(file, "file");
@@ -88,7 +88,7 @@ export default function Recorder({ onUploadDone }) {
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
     const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
     if (!clientId || !apiKey) {
-      setError("استيراد Google Drive غير مُعد — يرجى إعداد VITE_GOOGLE_CLIENT_ID و VITE_GOOGLE_API_KEY");
+      setError(t("recorder.error_drive_not_configured"));
       return;
     }
 
@@ -110,7 +110,7 @@ export default function Recorder({ onUploadDone }) {
           });
           client.requestAccessToken();
         };
-        head.onerror = () => reject(new Error("فشل تحميل Google Identity Services"));
+        head.onerror = () => reject(new Error(t("recorder.error_gsi_load")));
         document.head.appendChild(head);
       });
 
@@ -120,7 +120,7 @@ export default function Recorder({ onUploadDone }) {
         script.onload = () => {
           gapi.load("picker", () => resolve());
         };
-        script.onerror = () => reject(new Error("فشل تحميل Google Picker API"));
+        script.onerror = () => reject(new Error(t("recorder.error_picker_load")));
         document.head.appendChild(script);
       });
 
@@ -130,17 +130,17 @@ export default function Recorder({ onUploadDone }) {
           .setMimeTypes("video/*,audio/*");
 
         const picker = new google.picker.PickerBuilder()
-          .setTitle("اختر فيديو من Google Drive")
+          .setTitle(t("recorder.drive_picker_title"))
           .addView(docsView)
           .setOAuthToken(token)
           .setDeveloperKey(apiKey)
           .setCallback((data) => {
             if (data.action === google.picker.Action.PICKED) {
               const picked = data.docs[0];
-              if (!picked) { reject(new Error("لم يتم اختيار ملف")); return; }
+              if (!picked) { reject(new Error(t("recorder.error_no_file_selected"))); return; }
               resolve(picked);
             } else if (data.action === google.picker.Action.CANCEL) {
-              reject(new Error("تم الإلغاء"));
+              reject(new Error(t("recorder.error_cancelled")));
             }
           })
           .build();
@@ -156,7 +156,7 @@ export default function Recorder({ onUploadDone }) {
         `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (!response.ok) throw new Error("فشل تحميل الملف من Google Drive");
+      if (!response.ok) throw new Error(t("recorder.error_drive_download"));
 
       const contentLength = parseInt(response.headers.get("content-length") || "0");
       const reader = response.body.getReader();
@@ -181,8 +181,8 @@ export default function Recorder({ onUploadDone }) {
 
       await uploadFile(localFile, "screen");
     } catch (err) {
-      if (err.message === "تم الإلغاء") return;
-      setError(`فشل الاستيراد: ${err.message}`);
+      if (err.message === t("recorder.error_cancelled")) return;
+      setError(`${t("recorder.error_import_failed")}${err.message}`);
       setState("idle");
     }
   }, [uploadFile]);
@@ -208,7 +208,7 @@ export default function Recorder({ onUploadDone }) {
         try {
           micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         } catch {
-          console.warn("الميكروفون غير متاح — سيُسجَّل الصوت من الشاشة فقط");
+          console.warn(t("recorder.mic_unavailable"));
         }
 
         if (micStream) {
@@ -269,7 +269,7 @@ export default function Recorder({ onUploadDone }) {
 
     } catch (err) {
       if (err.name === "NotAllowedError") {
-        setError("رُفض الإذن. يرجى السماح والمحاولة مجدداً.");
+        setError(t("recorder.error_permission"));
       } else {
         setError(`خطأ: ${err.message}`);
       }
@@ -319,7 +319,7 @@ export default function Recorder({ onUploadDone }) {
       setState("done");
       if (onUploadDone) onUploadDone(video);
     } catch (err) {
-      setError(`فشل الرفع: ${err.message}`);
+      setError(`${t("recorder.error_upload_failed")}${err.message}`);
       setState("idle");
     }
   };
@@ -392,7 +392,7 @@ export default function Recorder({ onUploadDone }) {
               animation: state === "recording" ? "pulse-ring 1s infinite" : "none",
             }} />
             <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>
-              {state === "recording" ? "يُسجَّل" : "متوقف مؤقتاً"} — {formatTime(duration)}
+              {state === "recording" ? t("recorder.recording") : t("recorder.paused")} — {formatTime(duration)}
             </span>
           </div>
         </div>
@@ -402,13 +402,13 @@ export default function Recorder({ onUploadDone }) {
         <div className="card fade-in" style={{ marginBottom: 16 }}>
           {isMobile && (
             <div style={{ padding: "12px 16px", background: "#818CF815", border: "1px solid #818CF833", borderRadius: 10, fontSize: 13, color: "#818CF8", marginBottom: 16, textAlign: "center" }}>
-              تسجيل الشاشة متاح على الكمبيوتر فقط. يمكنك تسجيل الكاميرا والميكروفون هنا.
+              {t("recorder.mobile_notice")}
             </div>
           )}
 
           {!isMobile && (
             <div style={{ display: "flex", background: "var(--bg)", borderRadius: 10, padding: 4, marginBottom: 16 }}>
-              {[["screen", "تسجيل الشاشة"], ["camera", "الكاميرا"], ["file", "من الملفات"]].map(([m, label]) => (
+              {[["screen", t("recorder.screen_recording")], ["camera", t("recorder.camera")], ["file", t("recorder.from_files")]].map(([m, label]) => (
                 <button key={m} onClick={() => setMode(m)} style={tabStyle(mode === m)}>
                   {label}
                 </button>
@@ -419,7 +419,7 @@ export default function Recorder({ onUploadDone }) {
           {mode === "file" && !isMobile && (
             <div style={{ textAlign: "center", marginBottom: 16 }}>
               <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
-                اختر فيديو أو ملف صوتي من جهازك
+                {t("recorder.file_desc")}
               </div>
               <input
                 ref={fileInputRef}
@@ -434,7 +434,7 @@ export default function Recorder({ onUploadDone }) {
                 style={{ width: "100%", justifyContent: "center" }}
               >
                 <span style={{ fontSize: 16 }}>📂</span>
-                اختر ملفاً
+                {t("recorder.choose_file")}
               </button>
             </div>
           )}
@@ -442,29 +442,29 @@ export default function Recorder({ onUploadDone }) {
           {mode !== "file" && (
             <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16, textAlign: "center" }}>
               {mode === "camera" || isMobile
-                ? "سيُسجَّل الصوت والفيديو من الكاميرا والميكروفون"
-                : "سيُسجَّل الصوت من الميكروفون والشاشة معاً"}
+                ? t("recorder.camera_desc")
+                : t("recorder.screen_desc")}
             </div>
           )}
 
           {mode !== "file" && (
             <div style={{ marginBottom: 12 }}>
-              <label>عنوان التسجيل</label>
+              <label>{t("recorder.title_label")}</label>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="مثال: شرح المشروع لفريق العمل"
+                placeholder={t("recorder.title_placeholder")}
               />
             </div>
           )}
 
           {mode === "file" && (
             <div style={{ marginBottom: 12 }}>
-              <label>عنوان التسجيل</label>
+              <label>{t("recorder.title_label")}</label>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="اتركه فارغاً ليتم استخدام اسم الملف"
+                placeholder={t("recorder.title_file_placeholder")}
               />
             </div>
           )}
@@ -493,7 +493,7 @@ export default function Recorder({ onUploadDone }) {
               style={{ width: "auto", accentColor: "var(--green)" }}
             />
             <span style={{ fontSize: 13, color: "var(--text)", flex: 1 }}>
-              تقليل الضوضاء وال Background Noise
+              {t("recorder.noise_reduction")}
             </span>
             <span style={{ fontSize: 11, color: "var(--purple)" }}>
               AI
@@ -508,7 +508,7 @@ export default function Recorder({ onUploadDone }) {
                   onClick={() => fileInputRef.current?.click()}
                   style={{ flex: 1, justifyContent: "center" }}
                 >
-                  <span>📂</span> اختر ملفاً
+                  <span>📂</span> {t("recorder.choose_file")}
                 </button>
                 <button
                   className="btn btn-outline"
@@ -521,7 +521,7 @@ export default function Recorder({ onUploadDone }) {
             ) : (
               <button className="btn btn-primary btn-lg" onClick={startRecording} style={{ width: "100%", justifyContent: "center" }}>
                 <span style={{ fontSize: 18 }}>{mode === "camera" || isMobile ? "📹" : "⏺"}</span>
-                ابدأ التسجيل
+                {t("recorder.start_recording")}
               </button>
             )}
           </div>
@@ -531,10 +531,10 @@ export default function Recorder({ onUploadDone }) {
       {(state === "recording" || state === "paused") && (
         <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
           <button className="btn btn-outline" onClick={togglePause}>
-            {state === "recording" ? "توقف مؤقت" : "استأنف"}
+            {state === "recording" ? t("recorder.pause") : t("recorder.resume")}
           </button>
           <button className="btn btn-danger" onClick={stopRecording}>
-            أنهِ وارفع
+            {t("recorder.stop_and_upload")}
           </button>
         </div>
       )}
@@ -543,7 +543,7 @@ export default function Recorder({ onUploadDone }) {
         <div className="card fade-in" style={{ textAlign: "center", marginTop: 16 }}>
           <div style={{ fontSize: 24, marginBottom: 12 }}>☁️</div>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>
-            {noiseReduction ? "جاري الرفع وتنظيف الصوت..." : "جاري الرفع وبدء التفريغ..."}
+            {noiseReduction ? t("recorder.uploading_denoising") : t("recorder.uploading")}
           </div>
           <div style={{ background: "var(--border)", borderRadius: 4, height: 8, overflow: "hidden" }}>
             <div style={{ width: `${progress}%`, height: "100%", background: "linear-gradient(90deg, #34D39966, #34D399)", borderRadius: 4, transition: "width 0.3s" }} />
@@ -551,7 +551,7 @@ export default function Recorder({ onUploadDone }) {
           <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>{progress}%</div>
           {noiseReduction && (
             <div style={{ fontSize: 12, color: "var(--purple)", marginTop: 8 }}>
-              🔇 جاري تطبيق فلتر تقليل الضوضاء
+              🔇 {t("recorder.denoising_filter")}
             </div>
           )}
         </div>
@@ -560,16 +560,16 @@ export default function Recorder({ onUploadDone }) {
       {state === "done" && (
         <div className="card fade-in" style={{ textAlign: "center", marginTop: 16, border: "1px solid #34D39944" }}>
           <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>تم الرفع بنجاح!</div>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>{t("recorder.upload_done")}</div>
           <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
             {noiseReduction
-              ? "جاري تنظيف الصوت ثم بدء التفريغ..."
-              : "التفريغ العربي يعمل في الخلفية، سيظهر خلال دقيقة."}
+              ? t("recorder.upload_done_denoising_desc")
+              : t("recorder.upload_done_desc")}
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-            <a href={`/watch/${videoId}`} className="btn btn-primary">مشاهدة التسجيل</a>
+            <a href={`/watch/${videoId}`} className="btn btn-primary">{t("recorder.view_recording")}</a>
             <button className="btn btn-outline" onClick={() => { setState("idle"); setDuration(0); setTitle(""); setNoiseReduction(false); }}>
-              تسجيل جديد
+              {t("recorder.new_recording")}
             </button>
           </div>
         </div>

@@ -3,6 +3,7 @@
  * عرض إحصائيات الفيديو: مشاهدات، دول، مخطط احتفاظ
  */
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { analyticsAPI } from "../api/client";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -17,12 +18,12 @@ const COUNTRY_NAMES = {
   DE: "ألمانيا", FR: "فرنسا", TR: "تركيا", local: "محلي",
 };
 
-function fmtDur(sec) {
-  if (!sec) return "٠ث";
+function fmtDur(sec, t) {
+  if (!sec) return t("analytics.zero_seconds");
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
-  if (m > 0) return `${m}د ${s}ث`;
-  return `${s}ث`;
+  if (m > 0) return `${m}${t("analytics.minute_short")} ${s}${t("analytics.second_short")}`;
+  return `${s}${t("analytics.second_short")}`;
 }
 
 function MetricCard({ icon, label, value, color }) {
@@ -40,6 +41,7 @@ function MetricCard({ icon, label, value, color }) {
 }
 
 export default function Analytics({ videoId, onClose }) {
+  const { t } = useTranslation();
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState("");
@@ -53,13 +55,13 @@ export default function Analytics({ videoId, onClose }) {
 
   const fmtRetention = (data?.retention_graph || []).map(p => ({
     second: p.second,
-    label: fmtDur(p.second),
+    label: fmtDur(p.second, t),
     viewers: p.viewers,
   }));
 
   const fmtCountries = (data?.countries || []).slice(0, 8).map(c => ({
     ...c,
-    name: COUNTRY_NAMES[c.country] || c.country,
+    name: t("analytics.countries." + c.country, COUNTRY_NAMES[c.country] || c.country),
   }));
 
   return (
@@ -81,8 +83,8 @@ export default function Analytics({ videoId, onClose }) {
         {/* رأس */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
           <div>
-            <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>📊 تحليلات الفيديو</h2>
-            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>بيانات مفصلة عن مشاهدي تسجيلك</p>
+            <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>{t("analytics.title")}</h2>
+            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("analytics.subtitle")}</p>
           </div>
           <button onClick={onClose} style={{
             background: "none", border: "none", cursor: "pointer",
@@ -93,7 +95,7 @@ export default function Analytics({ videoId, onClose }) {
         {loading && (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
             <div className="spin" style={{ width: 36, height: 36, border: "3px solid var(--border)", borderTopColor: "var(--green)", borderRadius: "50%", margin: "0 auto 12px" }} />
-            <div style={{ color: "var(--text-muted)", fontSize: 13 }}>جاري تحميل البيانات...</div>
+            <div style={{ color: "var(--text-muted)", fontSize: 13 }}>{t("analytics.loading")}</div>
           </div>
         )}
 
@@ -108,16 +110,16 @@ export default function Analytics({ videoId, onClose }) {
           <>
             {/* بطاقات الأرقام */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 28 }}>
-              <MetricCard icon="👁️" label="إجمالي المشاهدات" value={data.total_views.toLocaleString("ar")} color="#34D399" />
-              <MetricCard icon="👤" label="مشاهدون فريدون" value={data.unique_viewers.toLocaleString("ar")} color="#818CF8" />
-              <MetricCard icon="⏱️" label="متوسط مدة المشاهدة" value={fmtDur(data.avg_watch_duration)} color="#F59E0B" />
+              <MetricCard icon="👁️" label={t("analytics.total_views")} value={data.total_views.toLocaleString("ar")} color="#34D399" />
+              <MetricCard icon="👤" label={t("analytics.unique_viewers")} value={data.unique_viewers.toLocaleString("ar")} color="#818CF8" />
+              <MetricCard icon="⏱️" label={t("analytics.avg_watch_duration")} value={fmtDur(data.avg_watch_duration, t)} color="#F59E0B" />
             </div>
 
             {/* مخطط الاحتفاظ */}
             {fmtRetention.length > 0 && (
               <div style={{ marginBottom: 28 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: "var(--text-muted)" }}>
-                  📈 منحنى الاحتفاظ بالمشاهدين
+                  📈 {t("analytics.retention_curve")}
                 </h3>
                 <div style={{ background: "var(--bg)", borderRadius: 12, padding: "16px 8px", border: "1px solid var(--border)" }}>
                   <ResponsiveContainer width="100%" height={200}>
@@ -139,7 +141,7 @@ export default function Analytics({ videoId, onClose }) {
                         contentStyle={{ background: "#0d0d1a", border: "1px solid #1e1e30", borderRadius: 8, fontSize: 12 }}
                         labelStyle={{ color: "#34D399" }}
                         itemStyle={{ color: "#e0e0ec" }}
-                        formatter={(val) => [val, "مشاهد"]}
+                        formatter={(val) => [val, t("analytics.viewers_tooltip")]}
                       />
                       <Line
                         type="monotone" dataKey="viewers"
@@ -156,7 +158,7 @@ export default function Analytics({ videoId, onClose }) {
             {fmtCountries.length > 0 && (
               <div>
                 <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: "var(--text-muted)" }}>
-                  🌍 توزيع المشاهدين حسب الدولة
+                  🌍 {t("analytics.country_distribution")}
                 </h3>
                 <div style={{ background: "var(--bg)", borderRadius: 12, padding: "16px 8px", border: "1px solid var(--border)" }}>
                   <ResponsiveContainer width="100%" height={180}>
@@ -169,7 +171,7 @@ export default function Analytics({ videoId, onClose }) {
                       />
                       <Tooltip
                         contentStyle={{ background: "#0d0d1a", border: "1px solid #1e1e30", borderRadius: 8, fontSize: 12 }}
-                        formatter={(val) => [val, "مشاهدة"]}
+                        formatter={(val) => [val, t("analytics.view_tooltip")]}
                       />
                       <Bar dataKey="count" radius={[0, 4, 4, 0]}>
                         {fmtCountries.map((_, i) => (
@@ -185,8 +187,8 @@ export default function Analytics({ videoId, onClose }) {
             {data.total_views === 0 && (
               <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)" }}>
                 <div style={{ fontSize: 36, marginBottom: 12 }}>📭</div>
-                <div>لا توجد بيانات مشاهدة بعد</div>
-                <div style={{ fontSize: 12, marginTop: 8 }}>شارك الفيديو لتبدأ تجميع البيانات</div>
+                <div>{t("analytics.no_data")}</div>
+                <div style={{ fontSize: 12, marginTop: 8 }}>{t("analytics.share_to_start")}</div>
               </div>
             )}
           </>

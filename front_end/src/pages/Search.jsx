@@ -3,6 +3,7 @@
  * ابحث في كل تسجيلاتك بكلمة واحدة
  */
 import { useState, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
 function fmtTime(s) {
@@ -11,6 +12,7 @@ function fmtTime(s) {
 }
 
 export default function Search() {
+  const { t } = useTranslation();
   const [query,       setQuery]       = useState("");
   const [results,     setResults]     = useState(null);
   const [loading,     setLoading]     = useState(false);
@@ -35,7 +37,7 @@ export default function Search() {
         `/api/search?q=${encodeURIComponent(q.trim())}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (!res.ok) throw new Error((await res.json()).detail || "فشل البحث");
+      if (!res.ok) throw new Error((await res.json()).detail || t("search.search_failed"));
       setResults(await res.json());
       // افتح أول نتيجة تلقائياً
       const first = await res.clone().json();
@@ -88,12 +90,12 @@ export default function Search() {
       {/* ── رأس الصفحة ──────────────────────────────── */}
       <div style={{ textAlign: "center", marginBottom: 32 }}>
         <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
-        <h1 style={{ fontSize: 26, fontWeight: 900, marginBottom: 8 }}>
-          البحث العميق في الصوت
-        </h1>
-        <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
-          ابحث في كل تسجيلاتك بكلمة واحدة — سيجد لك اللحظة بالثانية
-        </p>
+          <h1 style={{ fontSize: 26, fontWeight: 900, marginBottom: 8 }}>
+            {t("search.title")}
+          </h1>
+          <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
+            {t("search.desc")}
+          </p>
       </div>
 
       {/* ── شريط البحث ──────────────────────────────── */}
@@ -103,7 +105,7 @@ export default function Search() {
             ref={inputRef}
             value={query}
             onChange={handleChange}
-            placeholder="مثال: ميزانية، قرار، مشروع..."
+            placeholder={t("search.placeholder")}
             style={{
               width: "100%", padding: "16px 56px 16px 20px",
               fontSize: 16, borderRadius: 14,
@@ -164,9 +166,9 @@ export default function Search() {
           {results.total_matches === 0 ? (
             <div style={{ textAlign: "center", padding: "48px 20px", background: "var(--bg-card)", border: "1px dashed var(--border)", borderRadius: 14 }}>
               <div style={{ fontSize: 36, marginBottom: 12 }}>😶</div>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>لم يُعثر على نتائج</div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>{t("search.no_results")}</div>
               <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-                لم تُذكر كلمة "{results.query}" في أيٍّ من تسجيلاتك
+                {t("search.no_results_desc", { query: results.query })}
               </div>
             </div>
           ) : (
@@ -176,8 +178,8 @@ export default function Search() {
               border: "1px solid #34D39933", borderRadius: 12,
             }}>
               {[
-                { label: "إجمالي النتائج", value: results.total_matches, color: "#34D399" },
-                { label: "تسجيل", value: results.videos_found, color: "#818CF8" },
+                { label: t("search.total_results"), value: results.total_matches, color: "#34D399" },
+                { label: t("search.recordings_found"), value: results.videos_found, color: "#818CF8" },
               ].map(s => (
                 <div key={s.label} style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <span style={{ fontSize: 20, fontWeight: 900, color: s.color }}>{s.value}</span>
@@ -214,7 +216,7 @@ export default function Search() {
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <span style={{ background: "#34D39920", color: "#34D399", borderRadius: 20, padding: "3px 12px", fontSize: 12, fontWeight: 700 }}>
-                {result.match_count} نتيجة
+                {result.match_count} {t("search.result_count")}
               </span>
               <span style={{ color: "var(--text-muted)" }}>{expanded[result.video_id] ? "▲" : "▼"}</span>
             </div>
@@ -270,9 +272,9 @@ export default function Search() {
       {!results && !loading && (
         <div style={{ textAlign: "center", padding: "48px 20px", color: "var(--text-muted)" }}>
           <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>🎙️</div>
-          <div style={{ fontSize: 14 }}>ابحث في كل تسجيلاتك بكلمة واحدة</div>
+          <div style={{ fontSize: 14 }}>{t("search.empty_state")}</div>
           <div style={{ fontSize: 12, marginTop: 8, opacity: 0.7 }}>
-            مثال: "ميزانية"، "القرار"، "اجتماع"
+            {t("search.empty_example")}
           </div>
         </div>
       )}

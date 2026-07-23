@@ -1,30 +1,12 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { videosAPI } from "../api/client";
 import { useAuth } from "../hooks/useAuth";
 import Analytics from "../components/Analytics";
 
-const STATUS_MAP = {
-  pending:    { label: "في الانتظار", color: "#FCD34D", dot: "⏳" },
-  processing: { label: "يُفرَّغ الآن", color: "#818CF8", dot: "⚙️" },
-  done:       { label: "مكتمل",       color: "#34D399", dot: "✅" },
-  failed:     { label: "فشل",         color: "#F87171", dot: "❌" },
-};
-
-function formatSize(bytes) {
-  if (!bytes) return "";
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDur(sec) {
-  if (!sec) return "";
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60).toString().padStart(2, "0");
-  return `${m}:${s}`;
-}
-
 export default function Dashboard() {
+  const { t } = useTranslation();
   const [videos,       setVideos]       = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [deleting,     setDeleting]     = useState(null);
@@ -34,6 +16,26 @@ export default function Dashboard() {
   const { user } = useAuth();
   const navigate  = useNavigate();
 
+  const STATUS_MAP = {
+    pending:    { label: t("dashboard.status_pending"), color: "#FCD34D", dot: "⏳" },
+    processing: { label: t("dashboard.status_processing"), color: "#818CF8", dot: "⚙️" },
+    done:       { label: t("dashboard.status_done"), color: "#34D399", dot: "✅" },
+    failed:     { label: t("dashboard.status_failed"), color: "#F87171", dot: "❌" },
+  };
+
+  function formatSize(bytes) {
+    if (!bytes) return "";
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function formatDur(sec) {
+    if (!sec) return "";
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  }
+
   useEffect(() => {
     videosAPI.getMyVideos()
       .then(setVideos)
@@ -42,13 +44,13 @@ export default function Dashboard() {
   }, []);
 
   const handleDelete = async (id) => {
-    if (!confirm("هل أنت متأكد من حذف هذا التسجيل؟")) return;
+    if (!confirm(t("dashboard.confirm_delete"))) return;
     setDeleting(id);
     try {
       await videosAPI.deleteVideo(id);
       setVideos((v) => v.filter((x) => x.id !== id));
     } catch (e) {
-      alert("فشل الحذف: " + e.message);
+      alert(t("dashboard.delete_failed") + e.message);
     } finally {
       setDeleting(null);
     }
@@ -65,7 +67,7 @@ export default function Dashboard() {
     return (
       <div style={{ textAlign: "center", padding: "80px 20px" }}>
         <div className="spin" style={{ width: 36, height: 36, border: "3px solid var(--border)", borderTopColor: "var(--green)", borderRadius: "50%", margin: "0 auto 16px" }} />
-        <div style={{ color: "var(--text-muted)" }}>جاري التحميل...</div>
+        <div style={{ color: "var(--text-muted)" }}>{t("dashboard.loading")}</div>
       </div>
     );
   }
@@ -75,14 +77,14 @@ export default function Dashboard() {
       {/* رأس الصفحة */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>تسجيلاتي</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>{t("dashboard.title")}</h1>
           <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
-            {videos.length} تسجيل · الخطة: <span style={{ color: "var(--green)", fontWeight: 700 }}>{user?.plan === "free" ? "مجانية" : "Pro"}</span>
+            {videos.length} {t("dashboard.recording")} · {t("dashboard.plan_label")} <span style={{ color: "var(--green)", fontWeight: 700 }}>{user?.plan === "free" ? t("dashboard.plan_free") : "Pro"}</span>
             {user?.plan === "free" && ` (${videos.length}/25)`}
           </p>
         </div>
         <Link to="/record" className="btn btn-primary">
-          <span>⏺</span> تسجيل جديد
+          <span>⏺</span> {t("dashboard.new_recording")}
         </Link>
       </div>
 
@@ -90,9 +92,9 @@ export default function Dashboard() {
       {videos.length === 0 && (
         <div style={{ textAlign: "center", padding: "80px 20px", background: "var(--bg-card)", border: "1px dashed var(--border)", borderRadius: 16 }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🎙️</div>
-          <h3 style={{ fontSize: 18, marginBottom: 8 }}>لا يوجد تسجيلات بعد</h3>
-          <p style={{ color: "var(--text-muted)", marginBottom: 20 }}>ابدأ بتسجيل شاشتك الآن</p>
-          <Link to="/record" className="btn btn-primary btn-lg">ابدأ تسجيلك الأول</Link>
+          <h3 style={{ fontSize: 18, marginBottom: 8 }}>{t("dashboard.empty")}</h3>
+          <p style={{ color: "var(--text-muted)", marginBottom: 20 }}>{t("dashboard.empty_desc")}</p>
+          <Link to="/record" className="btn btn-primary btn-lg">{t("dashboard.start_first")}</Link>
         </div>
       )}
 
@@ -141,7 +143,7 @@ export default function Dashboard() {
                   className="btn btn-outline"
                   style={{ padding: "5px 10px", fontSize: 11 }}
                   onClick={() => setAnalyticsId(v.id)}
-                  title="تحليلات الفيديو"
+                  title={t("dashboard.analytics_title")}
                 >
                   📊
                 </button>
@@ -149,7 +151,7 @@ export default function Dashboard() {
                   className="btn btn-outline"
                   style={{ padding: "5px 10px", fontSize: 11 }}
                   onClick={() => copyShare(v)}
-                  title="نسخ رابط المشاركة"
+                  title={t("dashboard.copy_link_title")}
                 >
                   {copied === v.id ? "✅" : "🔗"}
                 </button>

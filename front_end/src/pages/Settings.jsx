@@ -2,15 +2,10 @@ import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { authAPI } from "../api/client";
+import { useTranslation } from "react-i18next";
 import PasswordInput from "../components/PasswordInput";
 
 const PASSWORD_MIN_CHARS = 8;
-
-const ERROR_MESSAGES = {
-  "WRONG_PASSWORD": "كلمة المرور الحالية غير صحيحة",
-  "SAME_PASSWORD": "كلمة المرور الجديدة مطابقة للقديمة",
-  "VALIDATION_ERROR": "تحقق من صحة البيانات المُدخلة",
-};
 
 function getStrength(pwd) {
   let score = 0;
@@ -20,12 +15,19 @@ function getStrength(pwd) {
   if (/[^A-Za-z0-9]/.test(pwd)) score++;
   return score;
 }
-const STRENGTH_LABELS = ["ضعيفة جداً", "ضعيفة", "متوسطة", "قوية", "قوية جداً"];
 const STRENGTH_COLORS = ["#F87171", "#F87171", "#FCD34D", "#34D399", "#34D399"];
 
 export default function Settings() {
   const { user, logout, refresh } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
+
+  const ERROR_MESSAGES = {
+    "WRONG_PASSWORD": t("settings.error_wrong_current_password"),
+    "SAME_PASSWORD": t("settings.error_same_password"),
+    "VALIDATION_ERROR": t("settings.error_validation"),
+  };
+  const STRENGTH_LABELS = [t("settings.strength_0"), t("settings.strength_1"), t("settings.strength_2"), t("settings.strength_3"), t("settings.strength_4")];
 
   // ── تغيير الاسم ──
   const [name, setName] = useState(user?.name || "");
@@ -45,7 +47,7 @@ export default function Settings() {
     try {
       await authAPI.updateName(name.trim());
       await refresh();
-      setNameMsg({ type: "success", text: "تم تحديث الاسم بنجاح" });
+      setNameMsg({ type: "success", text: t("settings.name_updated") });
     } catch (err) {
       setNameMsg({ type: "error", text: err.message });
     } finally {
@@ -58,24 +60,24 @@ export default function Settings() {
     setPwdMsg({ type: "", text: "" });
 
     if (newPwd.length < PASSWORD_MIN_CHARS) {
-      setPwdMsg({ type: "error", text: `كلمة المرور يجب أن تكون ${PASSWORD_MIN_CHARS} أحرف على الأقل` });
+      setPwdMsg({ type: "error", text: t("settings.error_password_min", { count: PASSWORD_MIN_CHARS }) });
       setPwdLoading(false);
       return;
     }
     if (!/\d/.test(newPwd)) {
-      setPwdMsg({ type: "error", text: "كلمة المرور يجب أن تحتوي على رقم واحد على الأقل" });
+      setPwdMsg({ type: "error", text: t("settings.error_password_digit") });
       setPwdLoading(false);
       return;
     }
     if (newPwd !== confirmPwd) {
-      setPwdMsg({ type: "error", text: "كلمتا المرور غير متطابقتين" });
+      setPwdMsg({ type: "error", text: t("settings.error_password_mismatch") });
       setPwdLoading(false);
       return;
     }
 
     try {
       await authAPI.updatePassword(currentPwd, newPwd);
-      setPwdMsg({ type: "success", text: "تم تغيير كلمة المرور بنجاح — يرجى تسجيل الدخول مجدداً" });
+      setPwdMsg({ type: "success", text: t("settings.password_changed") });
       setTimeout(async () => {
         await logout();
         navigate("/auth");
@@ -93,23 +95,23 @@ export default function Settings() {
   return (
     <div style={{ minHeight: "80vh", padding: "40px 24px", maxWidth: 600, margin: "0 auto" }}>
       <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>الإعدادات</h1>
-        <p style={{ color: "var(--text-muted)", fontSize: 14 }}>إدارة معلومات حسابك</p>
+        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>{t("settings.title")}</h1>
+        <p style={{ color: "var(--text-muted)", fontSize: 14 }}>{t("settings.subtitle")}</p>
       </div>
 
       {/* معلومات الحساب */}
       <div className="card fade-in" style={{ marginBottom: 24 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>معلومات الحساب</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>{t("settings.account_info")}</h2>
 
         <div style={{ marginBottom: 14 }}>
-          <label>البريد الإلكتروني</label>
+          <label>{t("settings.email")}</label>
           <input type="email" value={user?.email || ""} disabled
             style={{ opacity: 0.5, cursor: "not-allowed" }} />
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <label>الاسم</label>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="اسمك" style={inputStyle} />
+          <label>{t("settings.name")}</label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder={t("settings.name_placeholder")} style={inputStyle} />
         </div>
 
         {nameMsg.text && (
@@ -123,27 +125,27 @@ export default function Settings() {
 
         <button className="btn btn-primary" onClick={handleNameSave} disabled={nameLoading}
           style={{ justifyContent: "center", width: "100%" }}>
-          {nameLoading ? "جاري الحفظ..." : "حفظ التغييرات"}
+          {nameLoading ? t("settings.saving") : t("settings.save_changes")}
         </button>
       </div>
 
       {/* تغيير كلمة المرور */}
       <div className="card fade-in" style={{ marginBottom: 24 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>تغيير كلمة المرور</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>{t("settings.change_password")}</h2>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <PasswordInput
-            label="كلمة المرور الحالية"
+            label={t("settings.current_password")}
             value={currentPwd}
             onChange={e => setCurrentPwd(e.target.value)}
             name="current_password"
           />
 
           <PasswordInput
-            label="كلمة المرور الجديدة"
+            label={t("settings.new_password")}
             value={newPwd}
             onChange={e => setNewPwd(e.target.value)}
-            placeholder="8 أحرف على الأقل وتحتوي على رقم"
+            placeholder={t("settings.password_placeholder")}
             name="new_password"
           />
 
@@ -162,7 +164,7 @@ export default function Settings() {
           })()}
 
           <PasswordInput
-            label="تأكيد كلمة المرور الجديدة"
+            label={t("settings.confirm_password")}
             value={confirmPwd}
             onChange={e => setConfirmPwd(e.target.value)}
             name="confirm_new_password"
@@ -179,7 +181,7 @@ export default function Settings() {
 
           <button className="btn btn-primary" onClick={handlePasswordChange} disabled={pwdLoading}
             style={{ justifyContent: "center" }}>
-            {pwdLoading ? "جاري التغيير..." : "تغيير كلمة المرور"}
+            {pwdLoading ? t("settings.changing") : t("settings.change_password_btn")}
           </button>
         </div>
       </div>
@@ -187,7 +189,7 @@ export default function Settings() {
       {/* رابط العودة */}
       <div style={{ textAlign: "center" }}>
         <Link to="/dashboard" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>
-          ← العودة للوحة التحكم
+          {t("settings.back_to_dashboard")}
         </Link>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
+import { useTranslation } from "react-i18next";
 import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
 import Auth from "./pages/Auth";
@@ -11,11 +12,12 @@ import Settings from "./pages/Settings";
 
 function Protected({ children }) {
   const { user, loading, verified } = useAuth();
+  const { t } = useTranslation();
 
   if (loading) return (
     <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", minHeight: "60vh", gap: 16 }}>
       <div className="spin" style={{ width: 36, height: 36, border: "3px solid #1e1e30", borderTopColor: "#34D399", borderRadius: "50%" }} />
-      <span style={{ color: "var(--text-muted)", fontSize: 13 }}>جاري التحقق من الجلسة...</span>
+      <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{t("loading")}</span>
     </div>
   );
 

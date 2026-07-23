@@ -4,30 +4,32 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-
-const PLANS = [
-  {
-    id:"free", name:"مجاني", price:0, color:"#555",
-    features:["25 تسجيل","5 دقائق للمقطع","تفريغ أساسي","رابط مشاركة"],
-    cta:"حسابك الحالي", disabled:true,
-  },
-  {
-    id:"pro", name:"Pro", price:7, color:"#34D399",
-    features:["غير محدود","ساعة كاملة للمقطع","ترجمة + تلخيص AI","تصدير DOCX + SRT","بدون علامة مائية"],
-    cta:"اشترك الآن", disabled:false, popular:true,
-  },
-  {
-    id:"team", name:"Team", price:20, color:"#818CF8",
-    features:["كل مزايا Pro","5 أعضاء","Workspace مشترك","API للمطورين","دعم أولوية"],
-    cta:"اشترك الآن", disabled:false,
-  },
-];
+import { useTranslation } from "react-i18next";
 
 export default function Pricing() {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(null);
   const [error,   setError]   = useState("");
   const { user }              = useAuth();
   const navigate              = useNavigate();
+
+  const PLANS = [
+    {
+      id:"free", name:t("pricing.free_name"), price:0, color:"#555",
+      features:[t("pricing.free_features.0"), t("pricing.free_features.1"), t("pricing.free_features.2"), t("pricing.free_features.3")],
+      cta:t("pricing.free_cta"), disabled:true,
+    },
+    {
+      id:"pro", name:t("pricing.pro_name"), price:7, color:"#34D399",
+      features:[t("pricing.pro_features.0"), t("pricing.pro_features.1"), t("pricing.pro_features.2"), t("pricing.pro_features.3"), t("pricing.pro_features.4")],
+      cta:t("pricing.pro_cta"), disabled:false, popular:true,
+    },
+    {
+      id:"team", name:t("pricing.team_name"), price:20, color:"#818CF8",
+      features:[t("pricing.team_features.0"), t("pricing.team_features.1"), t("pricing.team_features.2"), t("pricing.team_features.3"), t("pricing.team_features.4")],
+      cta:t("pricing.team_cta"), disabled:false,
+    },
+  ];
 
   const handleSubscribe = async (planId) => {
     if (!user) { navigate("/auth"); return; }
@@ -42,7 +44,7 @@ export default function Pricing() {
         body: JSON.stringify({ plan: planId }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "فشل إنشاء رابط الدفع");
+      if (!res.ok) throw new Error(data.detail || t("pricing.payment_failed"));
 
       if (data.mode === "development") {
         // وضع التطوير — فعّل تجريبياً
@@ -51,7 +53,7 @@ export default function Pricing() {
           headers: { "Authorization": `Bearer ${token}` },
         });
         if (demoRes.ok) {
-          alert(`✅ تم تفعيل خطة ${planId} تجريبياً!\nفي الإنتاج سيتم التوجيه لبوابة الدفع.`);
+          alert(t("pricing.demo_activated", { plan: planId }));
           navigate("/dashboard");
         }
       } else {
@@ -68,9 +70,9 @@ export default function Pricing() {
   return (
     <div style={{ maxWidth:900, margin:"0 auto", padding:"40px 20px" }}>
       <div style={{ textAlign:"center", marginBottom:48 }}>
-        <h1 style={{ fontSize:28, fontWeight:900, marginBottom:8 }}>اختر خطتك</h1>
+        <h1 style={{ fontSize:28, fontWeight:900, marginBottom:8 }}>{t("pricing.title")}</h1>
         <p style={{ color:"var(--text-muted)" }}>
-          ادفع بالفيزا أو الماستركارد — تصلك القيمة USDT
+          {t("pricing.subtitle")}
         </p>
         <div style={{ display:"inline-flex", gap:8, background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:12, padding:8, marginTop:16 }}>
           {["Visa","Mastercard","USDT","BTC"].map(m => (
@@ -89,13 +91,13 @@ export default function Pricing() {
           }}>
             {p.popular && (
               <div style={{ position:"absolute", top:-12, right:20, background:p.color, color:"#000", borderRadius:20, padding:"3px 14px", fontSize:11, fontWeight:800 }}>
-                الأكثر شعبية
+                {t("pricing.popular_badge")}
               </div>
             )}
             <div style={{ fontSize:16, fontWeight:700, color:p.color, marginBottom:8 }}>{p.name}</div>
             <div style={{ marginBottom:20 }}>
               <span style={{ fontSize:34, fontWeight:900 }}>${p.price}</span>
-              {p.price > 0 && <span style={{ fontSize:13, color:"var(--text-muted)" }}>/شهر</span>}
+              {p.price > 0 && <span style={{ fontSize:13, color:"var(--text-muted)" }}>{t("pricing.per_month")}</span>}
             </div>
             {p.features.map(f => (
               <div key={f} style={{ display:"flex", gap:8, marginBottom:8 }}>
@@ -115,8 +117,8 @@ export default function Pricing() {
                 fontFamily:"inherit", fontSize:14, transition:"all 0.2s",
               }}
             >
-              {loading === p.id ? "⏳ جاري..." :
-               user?.plan === p.id ? "✅ خطتك الحالية" : p.cta}
+              {loading === p.id ? t("pricing.loading") :
+               user?.plan === p.id ? t("pricing.current_plan") : p.cta}
             </button>
           </div>
         ))}
@@ -130,12 +132,12 @@ export default function Pricing() {
 
       {/* معلومات الدفع */}
       <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, padding:20, marginTop:16 }}>
-        <div style={{ fontSize:13, color:"var(--text-muted)", marginBottom:12, fontWeight:700 }}>كيف يعمل الدفع؟</div>
+        <div style={{ fontSize:13, color:"var(--text-muted)", marginBottom:12, fontWeight:700 }}>{t("pricing.payment_title")}</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
           {[
-            { step:"1", text:"تختار الخطة وتدفع بالفيزا" },
-            { step:"2", text:"بوابة Cryptomus تحوّل تلقائياً لـ USDT" },
-            { step:"3", text:"يُفعَّل اشتراكك فوراً لمدة 30 يوم" },
+            { step:"1", text:t("pricing.payment_step1") },
+            { step:"2", text:t("pricing.payment_step2") },
+            { step:"3", text:t("pricing.payment_step3") },
           ].map(s => (
             <div key={s.step} style={{ textAlign:"center" }}>
               <div style={{ width:32, height:32, borderRadius:"50%", background:"#34D39920", border:"1px solid #34D39944", margin:"0 auto 8px", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:"#34D399" }}>{s.step}</div>
@@ -144,7 +146,7 @@ export default function Pricing() {
           ))}
         </div>
         <div style={{ marginTop:14, padding:"10px 14px", background:"#FCD34D10", border:"1px solid #FCD34D22", borderRadius:8, fontSize:12, color:"#FCD34D" }}>
-          ⚠️ رسوم التحويل 3-5% — بدون أي متطلبات بنكية في ليبيا
+          {t("pricing.payment_fee_note")}
         </div>
       </div>
     </div>

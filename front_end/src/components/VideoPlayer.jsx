@@ -4,6 +4,7 @@
 import { useState, useRef, useEffect } from "react";
 import { transcriptAPI, aiAPI, commentsAPI, analyticsAPI, videosAPI } from "../api/client";
 import AIFeatures from "./AIFeatures";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/useAuth";
 
 // Optional import for HLS (we'll check dynamically or assume it's bundled if imported)
@@ -41,6 +42,7 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
   const [authorName, setAuthorName] = useState("");
   const [activeCommentId, setActiveCommentId] = useState(null);
   const { user } = useAuth();
+  const { t } = useTranslation();
 
   const videoRef  = useRef(null);
   const hlsRef    = useRef(null);
@@ -96,11 +98,11 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
   const fetchTranscript = async () => {
     if (!video) return;
     try {
-      const t = await transcriptAPI.get(video.id);
-      setTranscript(t);
-      setStatus(t.status);
-      if (t.full_text) setEditText(t.full_text);
-      if (t.status === "pending" || t.status === "processing") {
+      const data = await transcriptAPI.get(video.id);
+      setTranscript(data);
+      setStatus(data.status);
+      if (data.full_text) setEditText(data.full_text);
+      if (data.status === "pending" || data.status === "processing") {
         pollRef.current = setTimeout(fetchTranscript, 4000);
       }
     } catch { setStatus("error"); }
@@ -168,7 +170,7 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
       await transcriptAPI.edit(video.id, { full_text: editText });
       setTranscript((t) => ({ ...t, full_text: editText }));
       setIsEditing(false);
-    } catch (e) { alert("فشل الحفظ: " + e.message); }
+    } catch (e) {       alert(t("player.save_failed") + e.message); }
   };
 
   // Feature 2
@@ -178,7 +180,7 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
       const res = await aiAPI.generateChapters(video.id);
       setChapters(res.chapters);
     } catch (e) {
-      alert("فشل توليد الفصول: " + e.message);
+      alert(t("player.generate_chapters_failed") + e.message);
     } finally {
       setGeneratingChapters(false);
     }
@@ -193,12 +195,12 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
       const c = await commentsAPI.add(video.id, {
         timestamp_seconds: currentTime,
         text: commentText,
-        author_name: user?.name || authorName || "زائر"
+        author_name: user?.name || authorName || t("player.guest_default")
       });
       setComments([...comments, c].sort((a,b) => a.timestamp_seconds - b.timestamp_seconds));
       setCommentText("");
     } catch (e) {
-      alert("فشل إضافة التعليق: " + e.message);
+      alert(t("player.add_comment_failed") + e.message);
     }
   };
 
@@ -208,7 +210,7 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
       setComments(comments.filter(c => c.id !== id));
       setActiveCommentId(null);
     } catch (e) {
-      alert("فشل حذف التعليق: " + e.message);
+      alert(t("player.delete_comment_failed") + e.message);
     }
   };
 
@@ -267,7 +269,7 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
         <div className="card" style={{ marginBottom:16 }}>
           <h2 style={{ fontSize:18, fontWeight:700, marginBottom:8 }}>{video.title}</h2>
           <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:12 }}>
-            <span style={{ fontSize:12, color:"var(--text-muted)" }}>👁 {video.views_count} مشاهدة</span>
+            <span style={{ fontSize:12, color:"var(--text-muted)" }}>👁 {video.views_count} {t("player.views_count")}</span>
             {video.duration && <span style={{ fontSize:12, color:"var(--text-muted)" }}>⏱ {fmtTime(video.duration)}</span>}
             <span style={{ fontSize:12, color:"var(--text-muted)" }}>📅 {new Date(video.created_at).toLocaleDateString("ar")}</span>
           </div>
@@ -280,7 +282,7 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
             </span>
             <button className="btn btn-outline" style={{ padding:"4px 12px", fontSize:11, flexShrink:0 }}
               onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/share/${video.share_token}`); setCopied(true); setTimeout(()=>setCopied(false),2000); }}>
-              {copied ? "✅" : "نسخ"}
+              {copied ? t("player.copied") : t("player.copy")}
             </button>
           </div>
         </div>
@@ -292,12 +294,12 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
             style={{ width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit", padding:0 }}
           >
             <span style={{ fontWeight:700, fontSize:15 }}>
-              ✨ الميزات الذكية
+              ✨ {t("player.smart_features")}
             </span>
             <div style={{ display:"flex", gap:6 }}>
-              <span style={{ fontSize:10, background:"#34D39920", color:"#34D399", borderRadius:6, padding:"2px 8px" }}>ترجمة</span>
-              <span style={{ fontSize:10, background:"#818CF820", color:"#818CF8", borderRadius:6, padding:"2px 8px" }}>تلخيص</span>
-              <span style={{ fontSize:10, background:"#C084FC20", color:"#C084FC", borderRadius:6, padding:"2px 8px" }}>متحدثون</span>
+              <span style={{ fontSize:10, background:"#34D39920", color:"#34D399", borderRadius:6, padding:"2px 8px" }}>{t("player.badge_translate")}</span>
+              <span style={{ fontSize:10, background:"#818CF820", color:"#818CF8", borderRadius:6, padding:"2px 8px" }}>{t("player.badge_summarize")}</span>
+              <span style={{ fontSize:10, background:"#C084FC20", color:"#C084FC", borderRadius:6, padding:"2px 8px" }}>{t("player.badge_speakers")}</span>
               <span style={{ color:"var(--text-muted)", fontSize:14 }}>{showAI ? "▲" : "▼"}</span>
             </div>
           </button>
@@ -312,10 +314,10 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
         {/* ── Feature 2: فصول الفيديو ────────────────────────── */}
         <div className="card" style={{ marginBottom:16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <h3 style={{ fontSize: 16, fontWeight: 700 }}>📑 فصول الفيديو</h3>
+            <h3 style={{ fontSize: 16, fontWeight: 700 }}>{t("player.chapters")}</h3>
             {status === "done" && chapters.length === 0 && (
               <button className="btn btn-outline" style={{ fontSize: 11, padding: "4px 12px" }} onClick={handleGenerateChapters} disabled={generatingChapters}>
-                {generatingChapters ? "جاري الإنشاء..." : "إنشاء فصول ذكية ✨"}
+                {generatingChapters ? t("player.generating") : t("player.generate_chapters")}
               </button>
             )}
           </div>
@@ -331,24 +333,24 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
               ))}
             </div>
           ) : (
-            <div style={{ color: "var(--text-muted)", fontSize: 13, textAlign: "center", padding: "10px 0" }}>لا توجد فصول بعد.</div>
+            <div style={{ color: "var(--text-muted)", fontSize: 13, textAlign: "center", padding: "10px 0" }}>{t("player.no_chapters")}</div>
           )}
         </div>
 
         {/* ── Feature 3: التعليقات ────────────────────────── */}
         <div className="card">
-          <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>💬 التعليقات</h3>
+          <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>{t("player.comments")}</h3>
           
           <form onSubmit={handleAddComment} style={{ display: "flex", gap: 10, marginBottom: 20 }}>
             {!user && (
-              <input type="text" placeholder="الاسم (زائر)" value={authorName} onChange={e => setAuthorName(e.target.value)} style={{ width: 120, fontSize: 12 }} />
+              <input type="text" placeholder={t("player.guest_name_placeholder")} value={authorName} onChange={e => setAuthorName(e.target.value)} style={{ width: 120, fontSize: 12 }} />
             )}
-            <input type="text" placeholder={`أضف تعليقاً عند ${fmtTime(currentTime)}...`} value={commentText} onChange={e => setCommentText(e.target.value)} style={{ flex: 1, fontSize: 13 }} />
-            <button type="submit" className="btn btn-primary" style={{ padding: "0 16px" }}>إرسال</button>
+            <input type="text" placeholder={`${t("player.comment_placeholder")} ${fmtTime(currentTime)}...`} value={commentText} onChange={e => setCommentText(e.target.value)} style={{ flex: 1, fontSize: 13 }} />
+            <button type="submit" className="btn btn-primary" style={{ padding: "0 16px" }}>{t("player.send")}</button>
           </form>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {comments.length === 0 && <div style={{ color: "var(--text-muted)", fontSize: 13, textAlign: "center" }}>كن أول من يعلق على هذا التسجيل.</div>}
+            {comments.length === 0 && <div style={{ color: "var(--text-muted)", fontSize: 13, textAlign: "center" }}>{t("player.no_comments")}</div>}
             
             {comments.map(c => (
               <div key={c.id} style={{ display: "flex", gap: 12, alignItems: "flex-start", background: activeCommentId === c.id ? "#34D39910" : "transparent", padding: "8px", borderRadius: 8, transition: "background 0.2s" }}>
@@ -364,7 +366,7 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
                 </div>
                 {/* Delete button (only for author or video owner) */}
                 {(user && (user.id === c.user_id || user.id === video.owner_id)) && (
-                  <button onClick={() => handleDeleteComment(c.id)} style={{ background: "none", border: "none", color: "var(--red)", cursor: "pointer", opacity: 0.5, fontSize: 12 }} title="حذف">🗑</button>
+                  <button onClick={() => handleDeleteComment(c.id)} style={{ background: "none", border: "none", color: "var(--red)", cursor: "pointer", opacity: 0.5, fontSize: 12 }} title={t("player.delete_comment")}>🗑</button>
                 )}
               </div>
             ))}
@@ -378,7 +380,7 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
 
         {/* رأس */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, flexShrink:0 }}>
-          <span style={{ fontWeight:700, fontSize:15 }}>📝 النص المفرَّغ</span>
+          <span style={{ fontWeight:700, fontSize:15 }}>{t("player.transcript")}</span>
           <div style={{ display:"flex", gap:6 }}>
             {status === "done" && !isEditing && (
               <>
@@ -392,8 +394,8 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
             )}
             {isEditing && (
               <>
-                <button className="btn btn-primary" style={{ padding:"4px 10px", fontSize:11 }} onClick={saveEdit}>حفظ</button>
-                <button className="btn btn-outline" style={{ padding:"4px 10px", fontSize:11 }} onClick={() => setIsEditing(false)}>إلغاء</button>
+                <button className="btn btn-primary" style={{ padding:"4px 10px", fontSize:11 }} onClick={saveEdit}>{t("player.save")}</button>
+                <button className="btn btn-outline" style={{ padding:"4px 10px", fontSize:11 }} onClick={() => setIsEditing(false)}>{t("player.cancel")}</button>
               </>
             )}
           </div>
@@ -403,8 +405,8 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
         {(status === "pending" || status === "processing") && (
           <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:20 }}>
             <div style={{ fontSize:28, marginBottom:12 }}>⚙️</div>
-            <div style={{ fontWeight:600, marginBottom:6 }}>{status === "pending" ? "في الانتظار..." : "جاري التفريغ..."}</div>
-            <div style={{ fontSize:12, color:"var(--text-muted)", marginBottom:16 }}>سيظهر النص تلقائياً</div>
+            <div style={{ fontWeight:600, marginBottom:6 }}>{status === "pending" ? t("player.pending") : t("player.processing")}</div>
+            <div style={{ fontSize:12, color:"var(--text-muted)", marginBottom:16 }}>{t("player.auto_appear")}</div>
             <div style={{ display:"flex", gap:4 }}>
               {[0,1,2].map(i => (
                 <div key={i} style={{ width:8, height:8, borderRadius:"50%", background:"var(--green)", animation:`pulse-ring 1.2s ${i*0.2}s infinite` }} />
@@ -416,10 +418,10 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
         {status === "failed" && (
           <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
             <div style={{ fontSize:28, marginBottom:8 }}>❌</div>
-            <div style={{ color:"var(--red)", marginBottom:12, fontSize:13 }}>فشل التفريغ</div>
+            <div style={{ color:"var(--red)", marginBottom:12, fontSize:13 }}>{t("player.failed")}</div>
             <button className="btn btn-outline" style={{ fontSize:12 }}
               onClick={() => transcriptAPI.retry(video.id).then(fetchTranscript)}>
-              🔄 إعادة المحاولة
+              🔄 {t("player.retry")}
             </button>
           </div>
         )}
@@ -471,7 +473,7 @@ export default function VideoPlayer({ video, mediaUrl, startTime = 0, tempToken 
         {/* تصدير */}
         {status === "done" && (
           <div style={{ borderTop:"1px solid var(--border)", paddingTop:12, marginTop:8, flexShrink:0 }}>
-            <div style={{ fontSize:11, color:"var(--text-muted)", marginBottom:8 }}>تصدير النص</div>
+            <div style={{ fontSize:11, color:"var(--text-muted)", marginBottom:8 }}>{t("player.export")}</div>
             <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
               {[
                 { fmt:"txt",  label:".txt",  color:"#34D399" },

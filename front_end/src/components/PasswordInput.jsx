@@ -1,21 +1,25 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export default function PasswordInput({
-  value, onChange, placeholder = "كلمة المرور",
-  label = "كلمة المرور", name = "password",
+  value, onChange, placeholder,
+  label, name = "password",
   minLength, required = false, style: extraStyle = {},
 }) {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
+  const displayLabel = label !== undefined ? label : t("password_input.label");
+  const displayPlaceholder = placeholder !== undefined ? placeholder : t("password_input.placeholder");
 
   return (
     <div style={{ position: "relative", ...extraStyle }}>
-      {label && <label>{label}</label>}
+      {displayLabel && <label>{displayLabel}</label>}
       <input
         type={visible ? "text" : "password"}
         name={name}
         value={value}
         onChange={onChange}
-        placeholder={placeholder}
+        placeholder={displayPlaceholder}
         autoComplete={name === "new_password" ? "new-password" : "current-password"}
         minLength={minLength}
         required={required}
@@ -24,7 +28,7 @@ export default function PasswordInput({
       <button
         type="button"
         onClick={() => setVisible(v => !v)}
-        aria-label={visible ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+        aria-label={visible ? t("password_input.hide") : t("password_input.show")}
         style={{
           position: "absolute",
           left: 12,

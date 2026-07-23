@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/useAuth";
 import { authAPI } from "../api/client";
 import PasswordInput from "../components/PasswordInput";
@@ -9,19 +10,6 @@ const PASSWORD_MAX_BYTES = 72;
 
 const passwordByteLen = (str) => new TextEncoder().encode(str).length;
 
-const ERROR_MESSAGES = {
-  "WRONG_PASSWORD":   "كلمة المرور غير صحيحة",
-  "EMAIL_NOT_FOUND":  "لا يوجد حساب بهذا البريد",
-  "EMAIL_EXISTS":     "البريد مسجل مسبقاً — سجّل الدخول بدلاً منه",
-  "RATE_LIMITED":     "محاولات كثيرة، انتظر دقيقة واحدة",
-  "TOKEN_EXPIRED":    "انتهت صلاحية جلستك — سجّل الدخول مجدداً",
-  "VALIDATION_ERROR": "تحقق من صحة البيانات المُدخلة",
-  "OTP_EXPIRED":      "انتهت صلاحية الرمز، اطلب رمزاً جديداً",
-  "OTP_MAX_ATTEMPTS": "تجاوزت عدد المحاولات، اطلب رمزاً جديداً",
-  "OTP_INVALID":      "الرمز غير صحيح",
-  "SAME_PASSWORD":    "كلمة المرور الجديدة مطابقة للقديمة",
-};
-
 function getStrength(pwd) {
   let score = 0;
   if (pwd.length >= 8) score++;
@@ -30,10 +18,25 @@ function getStrength(pwd) {
   if (/[^A-Za-z0-9]/.test(pwd)) score++;
   return score;
 }
-const STRENGTH_LABELS = ["ضعيفة جداً", "ضعيفة", "متوسطة", "قوية", "قوية جداً"];
 const STRENGTH_COLORS = ["#F87171", "#F87171", "#FCD34D", "#34D399", "#34D399"];
 
 export default function Auth() {
+  const { t } = useTranslation();
+
+  const ERROR_MESSAGES = {
+    "WRONG_PASSWORD": t("auth.error_wrong_password"),
+    "EMAIL_NOT_FOUND": t("auth.error_email_not_found"),
+    "EMAIL_EXISTS": t("auth.error_email_exists"),
+    "RATE_LIMITED": t("auth.error_rate_limited"),
+    "TOKEN_EXPIRED": t("auth.error_token_expired"),
+    "VALIDATION_ERROR": t("auth.error_validation"),
+    "OTP_EXPIRED": t("auth.error_otp_expired"),
+    "OTP_MAX_ATTEMPTS": t("auth.error_otp_max_attempts"),
+    "OTP_INVALID": t("auth.error_otp_invalid"),
+    "SAME_PASSWORD": t("auth.error_same_password"),
+  };
+  const STRENGTH_LABELS = [t("auth.strength_0"), t("auth.strength_1"), t("auth.strength_2"), t("auth.strength_3"), t("auth.strength_4")];
+
   const [params]               = useSearchParams();
   const [mode, setMode]        = useState(params.get("mode") === "register" ? "register" : "login");
   const [name, setName]        = useState("");
@@ -66,17 +69,17 @@ export default function Auth() {
       if (mode === "login") {
         await login(email, password);
       } else {
-        if (!name.trim()) { setError("يرجى إدخال اسمك"); setLoading(false); return; }
+        if (!name.trim()) { setError(t("auth.error_name_required")); setLoading(false); return; }
         if (password.length < PASSWORD_MIN_CHARS) {
-          setError(`كلمة المرور يجب أن تكون ${PASSWORD_MIN_CHARS} أحرف على الأقل`);
+          setError(t("auth.error_password_min", { count: PASSWORD_MIN_CHARS }));
           setLoading(false); return;
         }
         if (passwordByteLen(password) > PASSWORD_MAX_BYTES) {
-          setError("كلمة المرور طويلة جداً — الحد الأقصى 72 بايت");
+          setError(t("auth.error_password_max"));
           setLoading(false); return;
         }
         if (password !== confirmPwd) {
-          setError("كلمتا المرور غير متطابقتين");
+          setError(t("auth.error_password_mismatch"));
           setLoading(false); return;
         }
         await register(name, email, password);
@@ -147,11 +150,11 @@ export default function Auth() {
   // ── نسيت كلمة المرور: الخطوة 3 (كلمة مرور جديدة) ──
   const handleResetPassword = async () => {
     if (newPassword.length < 8) {
-      setForgotMessage("كلمة المرور يجب أن تكون 8 أحرف على الأقل");
+      setForgotMessage(t("auth.error_password_min", { count: 8 }));
       return;
     }
     if (newPassword !== confirmNew) {
-      setForgotMessage("كلمتا المرور غير متطابقتين");
+      setForgotMessage(t("auth.error_password_mismatch"));
       return;
     }
     setLoading(true);
@@ -191,26 +194,26 @@ export default function Auth() {
           <div className="card fade-in">
             {forgotMode === "email" && (
               <>
-                <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>نسيت كلمة المرور؟</h3>
-                <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>أدخل بريدك الإلكتروني وسنرسل لك رمزاً للتحقق</p>
+                <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{t("auth.forgot_title")}</h3>
+                <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>{t("auth.forgot_desc")}</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   <div>
-                    <label>البريد الإلكتروني</label>
+                    <label>{t("auth.email")}</label>
                     <input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} placeholder="example@email.com" />
                   </div>
                   {forgotMessage && <div style={{ padding: "10px 14px", background: "#F8717115", border: "1px solid #F8717133", borderRadius: 8, fontSize: 13, color: "var(--red)" }}>{forgotMessage}</div>}
                   <button className="btn btn-primary" onClick={handleForgotEmail} disabled={loading} style={{ justifyContent: "center" }}>
-                    {loading ? "جاري الإرسال..." : "إرسال رمز التحقق"}
+                    {loading ? t("auth.sending") : t("auth.send_otp")}
                   </button>
-                  <button onClick={() => { setForgotMode(null); setForgotMessage(""); }} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 13, fontFamily: "var(--font)" }}>← العودة للدخول</button>
+                  <button onClick={() => { setForgotMode(null); setForgotMessage(""); }} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 13, fontFamily: "var(--font)" }}>{t("auth.back_to_login")}</button>
                 </div>
               </>
             )}
 
             {forgotMode === "otp" && (
               <>
-                <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>أدخل رمز التحقق</h3>
-                <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>أرسلنا 6 أرقام إلى {forgotEmail}</p>
+                <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{t("auth.otp_title")}</h3>
+                <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>{t("auth.otp_desc")} {forgotEmail}</p>
                 <div style={{ display: "flex", gap: 8, direction: "ltr", justifyContent: "center", marginBottom: 16 }}>
                   {otp.map((digit, i) => (
                     <input key={i} id={`otp-${i}`} maxLength={1} value={digit}
@@ -225,21 +228,21 @@ export default function Auth() {
                 {forgotMessage && <div style={{ padding: "10px 14px", background: "#F8717115", border: "1px solid #F8717133", borderRadius: 8, fontSize: 13, color: "var(--red)", marginBottom: 12, textAlign: "center" }}>{forgotMessage}</div>}
                 <div style={{ textAlign: "center" }}>
                   {otpCountdown > 0 ? (
-                    <span style={{ color: "var(--text-muted)", fontSize: 13 }}>إعادة الإرسال بعد {otpCountdown} ثانية</span>
+                    <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{t("auth.resend_after")} {otpCountdown} {t("auth.resend_seconds")}</span>
                   ) : (
-                    <button onClick={handleResendOtp} style={{ background: "none", border: "none", color: "var(--green)", cursor: "pointer", fontSize: 13, fontFamily: "var(--font)", fontWeight: 600 }}>إعادة إرسال الرمز</button>
+                    <button onClick={handleResendOtp} style={{ background: "none", border: "none", color: "var(--green)", cursor: "pointer", fontSize: 13, fontFamily: "var(--font)", fontWeight: 600 }}>{t("auth.resend_otp")}</button>
                   )}
                 </div>
-                <button onClick={() => { setForgotMode("email"); setForgotMessage(""); }} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 13, fontFamily: "var(--font)", marginTop: 12 }}>← العودة</button>
+                <button onClick={() => { setForgotMode("email"); setForgotMessage(""); }} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 13, fontFamily: "var(--font)", marginTop: 12 }}>{t("auth.back")}</button>
               </>
             )}
 
             {forgotMode === "reset" && (
               <>
-                <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>كلمة مرور جديدة</h3>
-                <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>اختر كلمة مرور قوية</p>
+                <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{t("auth.new_password_title")}</h3>
+                <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>{t("auth.new_password_desc")}</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  <PasswordInput label="كلمة المرور الجديدة" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="8 أحرف على الأقل" name="new_password" />
+                  <PasswordInput label={t("auth.new_password")} value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder={t("auth.new_password_placeholder")} name="new_password" />
                   {newPassword.length > 0 && (() => {
                     const s = getStrength(newPassword);
                     return (
@@ -253,10 +256,10 @@ export default function Auth() {
                       </div>
                     );
                   })()}
-                  <PasswordInput label="تأكيد كلمة المرور" value={confirmNew} onChange={e => setConfirmNew(e.target.value)} placeholder="أعد إدخال كلمة المرور" name="confirm_new_password" />
+                  <PasswordInput label={t("auth.confirm_password")} value={confirmNew} onChange={e => setConfirmNew(e.target.value)} placeholder={t("auth.confirm_password_placeholder")} name="confirm_new_password" />
                   {forgotMessage && <div style={{ padding: "10px 14px", background: "#F8717115", border: "1px solid #F8717133", borderRadius: 8, fontSize: 13, color: "var(--red)" }}>{forgotMessage}</div>}
                   <button className="btn btn-primary" onClick={handleResetPassword} disabled={loading} style={{ justifyContent: "center" }}>
-                    {loading ? "جاري التغيير..." : "تغيير كلمة المرور"}
+                    {loading ? t("auth.changing") : t("auth.change_password_btn")}
                   </button>
                 </div>
               </>
@@ -277,13 +280,13 @@ export default function Auth() {
             سوى
           </Link>
           <p style={{ color: "var(--text-muted)", fontSize: 14, marginTop: 8 }}>
-            {mode === "login" ? "مرحباً بعودتك" : "انضم إلى سوى مجاناً"}
+            {mode === "login" ? t("auth.login_title") : t("auth.register_title")}
           </p>
         </div>
 
         <div className="card fade-in">
           <div style={{ display: "flex", background: "var(--bg)", borderRadius: 10, padding: 4, marginBottom: 24 }}>
-            {[["login", "تسجيل الدخول"], ["register", "حساب جديد"]].map(([m, label]) => (
+            {[["login", t("auth.login_tab")], ["register", t("auth.register_tab")]].map(([m, label]) => (
               <button key={m} onClick={() => { setMode(m); setError(""); setFieldError(""); }}
                 style={{ flex: 1, padding: "8px", borderRadius: 8, border: "none", fontFamily: "var(--font)", fontSize: 13, fontWeight: 600, cursor: "pointer", background: mode === m ? "var(--bg-card)" : "transparent", color: mode === m ? "var(--text)" : "var(--text-muted)", transition: "all 0.2s" }}>
                 {label}
@@ -294,12 +297,12 @@ export default function Auth() {
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {mode === "register" && (
               <div>
-                <label>الاسم الكامل</label>
-                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="أحمد محمد" required />
+                <label>{t("auth.name")}</label>
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("auth.name_placeholder")} required />
               </div>
             )}
             <div>
-              <label>البريد الإلكتروني</label>
+              <label>{t("auth.email")}</label>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="example@email.com" required />
             </div>
           {mode === "register" && password.length > 0 && (() => {
@@ -310,15 +313,15 @@ export default function Auth() {
             return (
               <div style={{ display: "flex", justifyContent: "flex-end", fontSize: 11, color, marginTop: -8, marginBottom: 2 }}>
                 {bytes}/{PASSWORD_MAX_BYTES} bytes
-                {tooLong && <span style={{ marginRight: 6 }}>— تجاوز الحد الأقصى</span>}
+                {tooLong && <span style={{ marginRight: 6 }}>— {t("auth.bytes_exceeded")}</span>}
               </div>
             );
           })()}
             <PasswordInput
-              label="كلمة المرور"
+              label={t("auth.password")}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={`${PASSWORD_MIN_CHARS} أحرف على الأقل`}
+              placeholder={`${PASSWORD_MIN_CHARS} ${t("auth.password_min")}`}
               name="password"
               minLength={PASSWORD_MIN_CHARS}
               required
@@ -326,10 +329,10 @@ export default function Auth() {
 
             {mode === "register" && (
               <PasswordInput
-                label="تأكيد كلمة المرور"
+                label={t("auth.confirm_password")}
                 value={confirmPwd}
                 onChange={(e) => setConfirmPwd(e.target.value)}
-                placeholder="أعد إدخال كلمة المرور"
+                placeholder={t("auth.confirm_password_placeholder")}
                 name="confirm_password"
                 required
               />
@@ -339,7 +342,7 @@ export default function Auth() {
               <div style={{ textAlign: "left", marginTop: -8 }}>
                 <button type="button" onClick={() => { setForgotMode("email"); setForgotEmail(email); setOtp(["","","","","",""]); setForgotMessage(""); }}
                   style={{ background: "none", border: "none", color: "var(--green)", cursor: "pointer", fontSize: 12, fontFamily: "var(--font)" }}>
-                  نسيت كلمة المرور؟
+                  {t("auth.forgot_password")}
                 </button>
               </div>
             )}
@@ -355,19 +358,19 @@ export default function Auth() {
               {loading ? (
                 <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span className="spin" style={{ width: 16, height: 16, border: "2px solid #000", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} />
-                  جاري...
+                  {t("auth.loading")}
                 </span>
-              ) : mode === "login" ? "دخول →" : "إنشاء الحساب →"}
+              ) : mode === "login" ? t("auth.login_btn") : t("auth.register_btn")}
             </button>
           </form>
         </div>
 
         {mode === "login" && (
           <p style={{ textAlign: "center", fontSize: 13, color: "var(--text-muted)", marginTop: 16 }}>
-            ليس لديك حساب؟{" "}
+            {t("auth.no_account")}{" "}
             <button onClick={() => setMode("register")}
               style={{ background: "none", border: "none", color: "var(--green)", cursor: "pointer", fontFamily: "var(--font)", fontSize: 13, fontWeight: 600 }}>
-              سجّل مجاناً
+              {t("auth.register_free")}
             </button>
           </p>
         )}

@@ -1,0 +1,147 @@
+"""
+طبقة التخزين المجردة — تدعم القرص المحلي و Cloudflare R2 (S3-compatible)
+"""
+import os
+import logging
+from pathlib import Path
+from typing import Optional
+from abc import ABC, abstractmethod
+
+logger = logging.getLogger(__name__)
+
+
+class StorageBackend(ABC):
+    @abstractmethod
+    def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+        """ارفع ملف وأعد المفتاح/المسار."""
+        ...
+
+    @abstractmethod
+    def get_presigned_upload_url(self, key: str, content_type: str, expires: int = 3600) -> dict:
+        """أعد presigned URL + fields للرفع المباشر من المتصفح."""
+        ...
+
+    @abstractmethod
+    def get_presigned_read_url(self, key: str, expires: int = 3600) -> str:
+        """أعد presigned URL للقراءة."""
+        ...
+
+    @abstractmethod
+    def delete(self, key: str) -> None:
+        ...
+
+    @abstractmethod
+    def exists(self, key: str) -> bool:
+        ...
+
+    @abstractmethod
+    def get_local_path(self, key: str) -> Optional[str]:
+        """أعد المسار المحلي إن كان التخزين محلياً. None إذا كان سحابياً."""
+        ...
+
+
+class LocalStorage(StorageBackend):
+    def __init__(self, base_dir: str):
+        self.base_dir = base_dir
+        os.makedirs(base_dir, exist_ok=True)
+
+    def _full_path(self, key: str) -> str:
+        return os.path.join(self.base_dir, key)
+
+    def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+        path = self._full_path(key)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+        return key
+
+    def get_presigned_upload_url(self, key: str, content_type: str, expires: int = 3600) -> dict:
+        return {"url": f"/api/videos/upload-direct?key={key}", "fields": {}}
+
+    def get_presigned_read_url(self, key: str, expires: int = 3600) -> str:
+        return f"/api/videos/file/{key}"
+
+    def delete(self, key: str) -> None:
+        path = self._full_path(key)
+        if os.path.exists(path):
+            os.remove(path)
+
+    def exists(self, key: str) -> bool:
+        return os.path.exists(self._full_path(key))
+
+    def get_local_path(self, key: str) -> Optional[str]:
+        path = self._full_path(key)
+        return path if os.path.exists(path) else None
+
+
+class R2Storage(StorageBackend):
+    """Cloudflare R2 — S3-compatible with zero egress fees."""
+
+    def __init__(self):
+        import boto3
+        self.bucket = os.environ["R2_BUCKET_NAME"]
+        self.public_url = os.environ.get("R2_PUBLIC_URL", "")
+        self.client = boto3.client(
+            "s3",
+            endpoint_url=os.environ["R2_ENDPOINT"],
+            aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+            aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+            region_name="auto",
+        )
+
+    def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+        self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
+        return key
+
+    def get_presigned_upload_url(self, key: str, content_type: str, expires: int = 3600) -> dict:
+        """Presigned PUT URL for browser-direct upload to R2."""
+        url = self.client.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": self.bucket, "Key": key, "ContentType": content_type},
+            ExpiresIn=expires,
+        )
+        return {"url": url, "fields": {"Content-Type": content_type}}
+
+    def get_presigned_read_url(self, key: str, expires: int = 3600) -> str:
+        if self.public_url:
+            return f"{self.public_url}/{key}"
+        return self.client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket, "Key": key},
+            ExpiresIn=expires,
+        )
+
+    def delete(self, key: str) -> None:
+        self.client.delete_object(Bucket=self.bucket, Key=key)
+
+    def exists(self, key: str) -> bool:
+        try:
+            self.client.head_object(Bucket=self.bucket, Key=key)
+            return True
+        except Exception:
+            return False
+
+    def get_local_path(self, key: str) -> Optional[str]:
+        return None  # سحابي — لا يوجد مسار محلي
+
+
+def get_storage() -> StorageBackend:
+    """يُنشئ طبقة التخزين المناسبة حسب البيئة."""
+    r2_bucket = os.environ.get("R2_BUCKET_NAME")
+    if r2_bucket:
+        logger.info("Using Cloudflare R2 storage")
+        return R2Storage()
+
+    from app.config import settings
+    logger.info(f"Using local storage: {settings.UPLOAD_DIR}")
+    return LocalStorage(settings.UPLOAD_DIR)
+
+
+# Singleton
+_storage: Optional[StorageBackend] = None
+
+def storage() -> StorageBackend:
+    global _storage
+    if _storage is None:
+        _storage = get_storage()
+    return _storage

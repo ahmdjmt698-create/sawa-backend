@@ -31,6 +31,18 @@ services:
         sync: false          # ستضيفها يدوياً
       - key: FRONTEND_URL
         sync: false          # رابط Vercel — ستضيفه بعد النشر
+      - key: SENTRY_DSN
+        sync: false          # اختياري — Sentry DSN لمراقبة الأخطاء
+      - key: R2_BUCKET_NAME
+        sync: false          # Cloudflare R2 — اختياري
+      - key: R2_ENDPOINT
+        sync: false          # https://<account-id>.r2.cloudflarestorage.com
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_PUBLIC_URL
+        sync: false          # رابط عام للصور المصغرة
 
     # قرص مستمر للملفات المؤقتة
     disk:

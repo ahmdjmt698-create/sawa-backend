@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def transcribe_with_gemini(file_path: str, language: str = "ar") -> dict:
     """
     يفرّغ الملف الصوتي باستخدام Gemini 1.5 Flash.
-    يدعم العربية ومختلف اللهجات.
+    يدعم العربية ومختلف اللغات واللهجات.
     """
     api_key = settings.GEMINI_API_KEY
     if not api_key:
@@ -31,7 +31,7 @@ def transcribe_with_gemini(file_path: str, language: str = "ar") -> dict:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-1.5-flash")
 
-    logger.info(f"🎙️ [Gemini] بدء تفريغ: {file_path}")
+    logger.info(f"🎙️ [Gemini] بدء تفريغ: {file_path} (language={language})")
 
     # اقرأ الملف كبيانات خام
     file_ext = Path(file_path).suffix.lower()
@@ -42,29 +42,65 @@ def transcribe_with_gemini(file_path: str, language: str = "ar") -> dict:
         ".mp3": "audio/mpeg",
         ".wav": "audio/wav",
         ".m4a": "audio/mp4",
+        ".avi": "video/x-msvideo",
+        ".mkv": "video/x-matroska",
+        ".ogg": "audio/ogg",
+        ".flac": "audio/flac",
     }
     mime_type = mime_map.get(file_ext, "audio/wav")
 
     with open(file_path, "rb") as f:
         audio_data = f.read()
 
-    prompt = """أنت مساعد متخصص في التفريغ الصوتي. فرّغ الملف الصوتي المرفق بدقة عالية.
+    # حدد لغة البرومبت حسب اللغة المطلوبة
+    base_lang = language.split("-")[0] if "-" in language else language
+    if base_lang == "ar":
+        prompt_lang = "العربية"
+    elif base_lang == "en":
+        prompt_lang = "English"
+    elif base_lang == "es":
+        prompt_lang = "Spanish"
+    elif base_lang == "fr":
+        prompt_lang = "French"
+    elif base_lang == "de":
+        prompt_lang = "German"
+    elif base_lang == "ru":
+        prompt_lang = "Russian"
+    elif base_lang == "zh":
+        prompt_lang = "Chinese"
+    elif base_lang == "ja":
+        prompt_lang = "Japanese"
+    elif base_lang == "ko":
+        prompt_lang = "Korean"
+    elif base_lang == "pt":
+        prompt_lang = "Portuguese"
+    elif base_lang == "it":
+        prompt_lang = "Italian"
+    elif base_lang == "tr":
+        prompt_lang = "Turkish"
+    elif base_lang == "hi":
+        prompt_lang = "Hindi"
+    else:
+        prompt_lang = "the audio's language"
 
-أرجع النتيجة بالضبط بهذا الشكل JSON (بدون أي نص إضافي خارج الـ JSON):
-{
-  "full_text": "النص الكامل المفرَّغ",
+    prompt = f"""You are an expert transcription assistant. Transcribe the attached audio file accurately.
+
+Return the result EXACTLY as this JSON (no extra text outside the JSON):
+{{
+  "full_text": "The complete transcribed text",
   "segments": [
-    {"start": 0.0, "end": 2.5, "text": "الجملة الأولى"},
-    {"start": 2.5, "end": 5.1, "text": "الجملة الثانية"}
+    {{"start": 0.0, "end": 2.5, "text": "First sentence"}},
+    {{"start": 2.5, "end": 5.1, "text": "Second sentence"}}
   ],
-  "language_detected": "ar"
-}
+  "language_detected": "detected language code"
+}}
 
-التعليمات:
-- احفظ الطوابع الزمنية (start/end) بالثواني بدقة
-- اقسم النص إلى جمل قصيرة (3-10 ثوانٍ لكل مقطع)
-- لا تُخترع توقيتاً — استخدم التوقيت الحقيقي من الملف
-- تعرّف على اللهجة إذا مختلفة عن الفصحى"""
+Instructions:
+- The audio language is {prompt_lang}
+- Preserve timestamps (start/end) in seconds accurately
+- Split text into short segments (3-10 seconds each)
+- Do not invent timestamps — use real timestamps from the audio
+- Detect the language and dialect if different from expected"""
 
     start_time = time.time()
 
@@ -108,7 +144,7 @@ def transcribe_with_gemini(file_path: str, language: str = "ar") -> dict:
 def transcribe_with_groq(file_path: str, language: str = "ar") -> dict:
     """
     يفرّغ الملف باستخدام Groq Whisper API.
-    سريع جداً ويدعم العربية.
+    سريع جداً ويدعم عشرات اللغات.
     """
     api_key = settings.GROQ_API_KEY
     if not api_key:
@@ -117,7 +153,8 @@ def transcribe_with_groq(file_path: str, language: str = "ar") -> dict:
     from groq import Groq
 
     client = Groq(api_key=api_key)
-    logger.info(f"🎙️ [Groq] بدء تفريغ: {file_path}")
+    base_lang = language.split("-")[0] if "-" in language else language
+    logger.info(f"🎙️ [Groq] بدء تفريغ: {file_path} (language={base_lang})")
 
     start_time = time.time()
 
@@ -125,7 +162,7 @@ def transcribe_with_groq(file_path: str, language: str = "ar") -> dict:
         result = client.audio.transcriptions.create(
             file=(Path(file_path).name, f.read()),
             model="whisper-large-v3-turbo",
-            language=language,
+            language=base_lang,
             response_format="verbose_json",
             timestamp_granularities=["segment"],
         )
@@ -182,12 +219,13 @@ def get_whisper_model():
 def transcribe_with_local_whisper(file_path: str, language: str = "ar") -> dict:
     model    = get_whisper_model()
     start_ts = time.time()
+    base_lang = language.split("-")[0] if "-" in language else language
 
-    logger.info(f"🎙️ [Local Whisper] بدء تفريغ: {file_path}")
+    logger.info(f"🎙️ [Local Whisper] بدء تفريغ: {file_path} (language={base_lang})")
 
     segments_iter, info = model.transcribe(
         file_path,
-        language=language,
+        language=base_lang,
         beam_size=5,
         vad_filter=True,
         vad_parameters=dict(min_silence_duration_ms=500),

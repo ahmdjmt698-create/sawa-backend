@@ -22,3 +22,5 @@ itsdangerous
 fastapi-mail
 ffmpeg-python
 alembic
+boto3
+sentry-sdk[fastapi]

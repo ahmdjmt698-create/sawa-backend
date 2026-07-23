@@ -3,21 +3,35 @@
  * يدعم: تسجيل الشاشة، الكاميرا، رفع ملفات، استيراد من Google Drive
  */
 import { useState, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { videosAPI } from "../api/client";
 
-const DIALECTS = [
-  { value: "ar",    label: "عربي فصحى" },
-  { value: "ar-EG", label: "مصري" },
-  { value: "ar-AE", label: "خليجي" },
-  { value: "ar-SY", label: "شامي" },
-  { value: "ar-MA", label: "مغاربي" },
-  { value: "ar-LY", label: "ليبي" },
+const LANGUAGES = [
+  { value: "ar",    label: "العربية" },
+  { value: "en",    label: "English" },
+  { value: "es",    label: "Español" },
+  { value: "fr",    label: "Français" },
+  { value: "de",    label: "Deutsch" },
+  { value: "ru",    label: "Русский" },
+  { value: "zh",    label: "中文" },
+  { value: "ja",    label: "日本語" },
+  { value: "ko",    label: "한국어" },
+  { value: "pt",    label: "Português" },
+  { value: "it",    label: "Italiano" },
+  { value: "tr",    label: "Türkçe" },
+  { value: "hi",    label: "हिन्दी" },
+  { value: "ar-EG", label: "العربية (مصر)" },
+  { value: "ar-AE", label: "العربية (خليجي)" },
+  { value: "ar-SY", label: "العربية (شامي)" },
+  { value: "ar-MA", label: "العربية (مغاربي)" },
+  { value: "ar-LY", label: "العربية (ليبي)" },
 ];
 
 const ALLOWED_EXTENSIONS = ["mp4", "webm", "mov", "mp3", "wav", "m4a", "avi", "mkv", "ogg", "flac"];
 const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
 export default function Recorder({ onUploadDone }) {
+  const { t } = useTranslation();
   const [state, setState]       = useState("idle");
   const [duration, setDuration] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -456,13 +470,13 @@ export default function Recorder({ onUploadDone }) {
           )}
 
           <div style={{ marginBottom: 16 }}>
-            <label>اللهجة العربية</label>
+            <label>{t("recorder.dialect")}</label>
             <select
               value={dialect}
               onChange={(e) => setDialect(e.target.value)}
               style={{ width: "100%", padding: "10px 14px", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text)", fontFamily: "var(--font)", fontSize: 14, cursor: "pointer", direction: "rtl" }}
             >
-              {DIALECTS.map((d) => (
+              {LANGUAGES.map((d) => (
                 <option key={d.value} value={d.value}>{d.label}</option>
               ))}
             </select>

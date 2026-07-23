@@ -1,6 +1,11 @@
 """
 سوى — Backend (Production Ready)
 """
+import os
+import logging
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -13,11 +18,28 @@ from starlette.responses import Response
 
 from app.limiter import limiter
 from app.exceptions import APIException
-import os
 
 from app.database import engine, Base
 from app.routers import videos, auth, transcripts, payments, search, comments, analytics
 from app.config import settings
+
+# ── Sentry (اختياري — لمراقبة الأخطاء) ──────────────
+sentry_dsn = os.getenv("SENTRY_DSN")
+if sentry_dsn:
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        integrations=[FastApiIntegration()],
+        traces_sample_rate=0.1,
+        environment=settings.ENVIRONMENT,
+    )
+
+# ── Structured Logging ────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("sawa")
 
 # ── Rate Limiter (shared across routers) ─────────────
 

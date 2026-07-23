@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/useAuth";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
+  const { t, i18n } = useTranslation();
   const navigate         = useNavigate();
   const location         = useLocation();
   const [scrolled, setScrolled] = useState(false);
@@ -28,6 +30,11 @@ export default function Navbar() {
 
   const isActive = (path) => location.pathname === path;
 
+  const toggleLanguage = () => {
+    const next = i18n.language === "ar" ? "en" : "ar";
+    i18n.changeLanguage(next);
+  };
+
   return (
     <nav style={{
       position: "sticky", top: 0, zIndex: 100,
@@ -47,7 +54,7 @@ export default function Navbar() {
           fontSize: 22, fontWeight: 900,
           background: "linear-gradient(135deg, #34D399, #818CF8)",
           WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-        }}>سوى</div>
+        }}>{t("app_name")}</div>
         <span style={{
           fontSize: 10, color: "#34D399", background: "#34D39915",
           border: "1px solid #34D39930", borderRadius: 6, padding: "1px 7px",
@@ -59,9 +66,9 @@ export default function Navbar() {
       {user && (
         <div style={{ display: "flex", gap: 4 }}>
           {[
-            { to: "/dashboard", label: "تسجيلاتي" },
-            { to: "/search",    label: "🔍 بحث" },
-            { to: "/pricing",   label: "الأسعار" },
+            { to: "/dashboard", label: t("nav.my_recordings") },
+            { to: "/search",    label: t("nav.search") },
+            { to: "/pricing",   label: t("nav.pricing") },
           ].map(l => (
             <Link key={l.to} to={l.to} style={{
               textDecoration: "none", padding: "6px 14px", borderRadius: 8,
@@ -79,6 +86,18 @@ export default function Navbar() {
 
       {/* يمين */}
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        {/* زر تبديل اللغة */}
+        <button onClick={toggleLanguage} style={{
+          padding: "5px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+          color: "#888", background: "transparent", border: "1px solid #1e1e30",
+          cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s",
+        }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#818CF866"; e.currentTarget.style.color = "#ccc"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#1e1e30"; e.currentTarget.style.color = "#888"; }}
+        >
+          {i18n.language === "ar" ? "EN" : "عربي"}
+        </button>
+
         {user ? (
           <>
             <Link to="/record" style={{
@@ -90,7 +109,7 @@ export default function Navbar() {
               onMouseEnter={(e) => e.currentTarget.style.boxShadow = "0 0 24px #34D39950"}
               onMouseLeave={(e) => e.currentTarget.style.boxShadow = "0 0 16px #34D39930"}
             >
-              <span style={{ fontSize: 12 }}>⏺</span> سجّل
+              <span style={{ fontSize: 12 }}>⏺</span> {t("nav.record")}
             </Link>
 
             {/* أفاتار مع قائمة منسدلة */}
@@ -110,7 +129,7 @@ export default function Navbar() {
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontSize: 12, fontWeight: 800, color: "#000",
                 }}>
-                  {user.name?.[0] || "؟"}
+                  {user.name?.[0] || "?"}
                 </div>
                 <span style={{ fontSize: 13, color: "#ccc" }}>{user.name?.split(" ")[0]}</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2" style={{ transform: menuOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
@@ -132,7 +151,7 @@ export default function Navbar() {
                   }}
                     onMouseEnter={(e) => e.currentTarget.style.background = "#ffffff08"}
                     onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                  >الإعدادات</Link>
+                  >{t("nav.settings")}</Link>
                   <button onClick={() => { setMenuOpen(false); logout().then?.(() => navigate("/")) || (logout(), navigate("/")); }} style={{
                     display: "block", width: "100%", padding: "8px 14px", borderRadius: 8,
                     fontSize: 13, color: "var(--red)", textAlign: "right",
@@ -141,7 +160,7 @@ export default function Navbar() {
                   }}
                     onMouseEnter={(e) => e.currentTarget.style.background = "#F8717110"}
                     onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                  >تسجيل الخروج</button>
+                  >{t("nav.logout")}</button>
                 </div>
               )}
             </div>
@@ -155,13 +174,13 @@ export default function Navbar() {
             }}
               onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#34D39966"; e.currentTarget.style.color = "#ccc"; }}
               onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#1e1e30"; e.currentTarget.style.color = "#888"; }}
-            >دخول</Link>
+            >{t("nav.login")}</Link>
 
             <Link to="/auth?mode=register" style={{
               padding: "7px 16px", borderRadius: 10, fontSize: 13, fontWeight: 800,
               color: "#000", textDecoration: "none", background: "#34D399",
               boxShadow: "0 0 16px #34D39930", transition: "all 0.2s",
-            }}>ابدأ مجاناً</Link>
+            }}>{t("nav.register")}</Link>
           </>
         )}
       </div>

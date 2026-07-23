@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # ── التخزين ──────────────────────────────────────
     UPLOAD_DIR: str = "uploads"
     MAX_FILE_SIZE_MB: int = 500
-    ALLOWED_EXTENSIONS: list = ["mp4", "webm", "mov", "mp3", "wav", "m4a"]
+    ALLOWED_EXTENSIONS: list = ["mp4", "webm", "mov", "mp3", "wav", "m4a", "avi", "mkv", "ogg", "flac"]
 
     # ── نموذج Whisper ────────────────────────────────
     WHISPER_MODEL: str = "base"
@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     BACKEND_URL: str = "http://localhost:8000"
     ENVIRONMENT: str = "development"
+
+    # ── Cloudflare R2 (اختياري) ──────────────────────
+    R2_BUCKET_NAME: Optional[str] = None
+    R2_ENDPOINT: Optional[str] = None
+    R2_ACCESS_KEY_ID: Optional[str] = None
+    R2_SECRET_ACCESS_KEY: Optional[str] = None
+    R2_PUBLIC_URL: Optional[str] = None
 
     class Config:
         env_file = ".env"

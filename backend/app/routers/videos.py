@@ -3,14 +3,13 @@
 """
 import os
 import uuid
-import shutil
 from pathlib import Path
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import aiofiles
 
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.limiter import limiter
@@ -20,6 +19,7 @@ from app.exceptions import APIException
 from app.auth import get_current_user, require_auth, hash_password, verify_password
 from app.config import settings
 from app.transcription import transcribe_audio, extract_audio_if_needed, denoise_audio
+from app.storage import storage
 
 router = APIRouter()
 
@@ -37,6 +37,7 @@ class VideoResponse(BaseModel):
     views_count:  int
     created_at:   datetime
     transcript_status: Optional[str] = None
+    thumbnail_url: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -52,7 +53,7 @@ class UnlockShareRequest(BaseModel):
 
 
 # ══════════════════════════════════════════════════════
-#  مهمة خلفية: التفريغ الصوتي
+#  مهمة خلفية: التفريغ الصوتي + HLS + صورة مصغرة
 # ══════════════════════════════════════════════════════
 def run_transcription_task(video_id: str, file_path: str, language: str, noise_reduction: bool = False):
     from app.database import Transcript, Video, TranscriptStatus, SessionLocal
@@ -88,6 +89,9 @@ def run_transcription_task(video_id: str, file_path: str, language: str, noise_r
 
         db.commit()
 
+        # ── بعد التفريغ: توليد فصول ذكية تلقائياً ──
+        _auto_generate_chapters(video_id, transcript, db)
+
     except Exception as e:
         transcript.status        = TranscriptStatus.FAILED
         transcript.error_message = str(e)
@@ -95,6 +99,64 @@ def run_transcription_task(video_id: str, file_path: str, language: str, noise_r
 
     finally:
         db.close()
+
+
+def _auto_generate_chapters(video_id: str, transcript, db):
+    """يولّد فصولاً ذكية تلقائياً بعد اكتمال التفريغ."""
+    import json
+    import anthropic
+    import os
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    if not transcript.full_text or transcript.chapters_json:
+        return
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return
+
+    try:
+        segments = json.loads(transcript.segments_json) if transcript.segments_json else []
+        if len(segments) < 3:
+            return
+
+        segments_text = "\n".join([
+            f"[{s.get('start', 0):.1f}s - {s.get('end', 0):.1f}s]: {s.get('text', '')}"
+            for s in segments
+        ])
+
+        prompt = f"""أنت مساعد ذكي. لديك نص مفرَّغ من تسجيل صوتي/فيديو.
+قم بتقسيمه إلى فصول (chapters) منطقية (3-8 فصول).
+
+أرجع JSON فقط بدون أي نص إضافي:
+{{"chapters": [{{"start": 0.0, "end": 120.5, "title": "عنوان الفصل", "summary": "ملخص الفصل في جملة"}}]}}
+
+- كل فصل يجب أن يكون منطقياً في المحتوى
+- العنوان بالعربية
+- استخدم الطوابع الزمنية الفعلية من النص
+
+النص:
+{segments_text[:8000]}"""
+
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        raw = message.content[0].text.strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        chapters_data = json.loads(raw)
+
+        transcript.chapters_json = json.dumps(chapters_data, ensure_ascii=False)
+        db.commit()
+        logger.info(f"📑 [Auto-Chapters] تم إنشاء فصول تلقائياً للفيديو {video_id[:8]}")
+
+    except Exception as e:
+        logger.warning(f"⚠️ [Auto-Chapters] فشل إنشاء الفصول التلقائية: {e}")
 
 
 # ══════════════════════════════════════════════════════
@@ -165,17 +227,87 @@ async def upload_video(
     db.commit()
     db.refresh(video)
 
+    # ── تفريغ صوتي ──
     background_tasks.add_task(
         run_transcription_task,
         video_id  = video_id,
         file_path = file_path,
-        language  = dialect if len(dialect) == 2 else "ar",
+        language  = dialect,
         noise_reduction = noise_reduction,
+    )
+
+    # ── تحويل HLS تلقائي ──
+    background_tasks.add_task(
+        _run_hls_conversion,
+        video_id=video_id,
+        input_path=file_path,
+    )
+
+    # ── صورة مصغرة تلقائية ──
+    background_tasks.add_task(
+        _run_thumbnail_generation,
+        video_id=video_id,
+        file_path=file_path,
     )
 
     response = VideoResponse.model_validate(video)
     response.transcript_status = TranscriptStatus.PENDING
     return response
+
+
+def _run_hls_conversion(video_id: str, input_path: str):
+    from app.database import SessionLocal, Video
+    db = SessionLocal()
+    try:
+        from app.hls import convert_to_hls
+        playlist_path = convert_to_hls(video_id, input_path)
+        video = db.query(Video).filter(Video.id == video_id).first()
+        if video:
+            video.hls_playlist_path = playlist_path
+            video.hls_ready = True
+            db.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"HLS conversion failed: {e}")
+        video = db.query(Video).filter(Video.id == video_id).first()
+        if video:
+            video.hls_ready = False
+            db.commit()
+    finally:
+        db.close()
+
+
+def _run_thumbnail_generation(video_id: str, file_path: str):
+    from app.database import SessionLocal, Video
+    db = SessionLocal()
+    try:
+        from app.thumbnails import generate_thumbnail
+        thumbnail_path = generate_thumbnail(file_path, video_id)
+        video = db.query(Video).filter(Video.id == video_id).first()
+        if video:
+            video.thumbnail_path = thumbnail_path
+            db.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Thumbnail generation failed: {e}")
+    finally:
+        db.close()
+
+
+# ══════════════════════════════════════════════════════
+#  POST /api/videos/presigned-upload
+# ══════════════════════════════════════════════════════
+@router.post("/presigned-upload")
+def get_presigned_upload(
+    filename:   str,
+    content_type: str = "video/webm",
+    current_user: User = Depends(require_auth),
+):
+    """يُعطي رابط رفع مباشر للمتصفح (لـ R2)."""
+    store = storage()
+    key = f"uploads/{current_user.id}/{uuid.uuid4().hex}/{filename}"
+    result = store.get_presigned_upload_url(key, content_type)
+    return {"key": key, **result}
 
 
 # ══════════════════════════════════════════════════════
@@ -196,6 +328,7 @@ def get_my_videos(
     for v in videos:
         r = VideoResponse.model_validate(v)
         r.transcript_status = v.transcript.status if v.transcript else None
+        r.thumbnail_url = storage().get_presigned_read_url(v.thumbnail_path) if v.thumbnail_path else None
         result.append(r)
     return result
 
@@ -203,8 +336,12 @@ def get_my_videos(
 # ══════════════════════════════════════════════════════
 #  GET /api/videos/share/{token}
 # ══════════════════════════════════════════════════════
-@router.get("/share/{token}", response_model=VideoResponse)
-def get_video_by_share_token(token: str, db: Session = Depends(get_db)):
+@router.get("/share/{token}")
+def get_video_by_share_token(
+    token: str,
+    password: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     video = db.query(Video).filter(Video.share_token == token).first()
     if not video:
         raise HTTPException(status_code=404, detail="الرابط غير صحيح أو منتهي")
@@ -215,17 +352,24 @@ def get_video_by_share_token(token: str, db: Session = Depends(get_db)):
 
     # تحقق من كلمة المرور
     if video.share_password_hash:
-        return {
-            "id": video.id,
-            "title": video.title,
-            "requires_password": True,
-            "share_token": video.share_token,
-        }
+        # إذا كان هناك كلمة مرور ولم يتم إرسالها — أعد بيانات محدودة
+        if not password:
+            return {
+                "id": video.id,
+                "title": video.title,
+                "requires_password": True,
+                "share_token": video.share_token,
+                "thumbnail_url": storage().get_presigned_read_url(video.thumbnail_path) if video.thumbnail_path else None,
+            }
+        # تحقق من كلمة المرور
+        if not verify_password(password, video.share_password_hash):
+            raise APIException(401, "كلمة المرور غير صحيحة", error_code="WRONG_PASSWORD")
 
     video.views_count += 1
     db.commit()
     r = VideoResponse.model_validate(video)
     r.transcript_status = video.transcript.status if video.transcript else None
+    r.thumbnail_url = storage().get_presigned_read_url(video.thumbnail_path) if video.thumbnail_path else None
     return r
 
 
@@ -233,7 +377,11 @@ def get_video_by_share_token(token: str, db: Session = Depends(get_db)):
 #  GET /api/videos/share/{token}/stream
 # ══════════════════════════════════════════════════════
 @router.get("/share/{token}/stream")
-def stream_video_by_share_token(token: str, db: Session = Depends(get_db)):
+def stream_video_by_share_token(
+    token: str,
+    password: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     video = db.query(Video).filter(Video.share_token == token).first()
     if not video:
         raise HTTPException(status_code=404, detail="الرابط غير صحيح أو منتهي")
@@ -242,7 +390,10 @@ def stream_video_by_share_token(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=410, detail="انتهت صلاحية رابط المشاركة")
 
     if video.share_password_hash:
-        raise HTTPException(status_code=401, detail="يتطلب كلمة مرور")
+        if not password:
+            raise HTTPException(status_code=401, detail="يتطلب كلمة مرور")
+        if not verify_password(password, video.share_password_hash):
+            raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
 
     if not os.path.exists(video.file_path):
         raise HTTPException(status_code=404, detail="الملف غير موجود على الخادم")
@@ -256,7 +407,19 @@ def stream_video_by_share_token(token: str, db: Session = Depends(get_db)):
 
 
 # ══════════════════════════════════════════════════════
-#  PATCH /api/videos/{id}/share-settings  (Feature 4)
+#  GET /api/videos/file/{path:path}  (local file serving)
+# ══════════════════════════════════════════════════════
+@router.get("/file/{file_path:path}")
+def serve_local_file(file_path: str):
+    store = storage()
+    local = store.get_local_path(file_path)
+    if local:
+        return FileResponse(local)
+    raise HTTPException(404, "الملف غير موجود")
+
+
+# ══════════════════════════════════════════════════════
+#  PATCH /api/videos/{id}/share-settings
 # ══════════════════════════════════════════════════════
 @router.patch("/{video_id}/share-settings")
 def update_share_settings(
@@ -288,7 +451,7 @@ def update_share_settings(
 
 
 # ══════════════════════════════════════════════════════
-#  POST /api/videos/share/{token}/unlock  (Feature 4)
+#  POST /api/videos/share/{token}/unlock
 # ══════════════════════════════════════════════════════
 @router.post("/share/{token}/unlock")
 def unlock_shared_video(
@@ -342,6 +505,7 @@ def get_video(
 
     r = VideoResponse.model_validate(video)
     r.transcript_status = video.transcript.status if video.transcript else None
+    r.thumbnail_url = storage().get_presigned_read_url(video.thumbnail_path) if video.thumbnail_path else None
     return r
 
 
@@ -374,7 +538,7 @@ def stream_video(
 
 
 # ══════════════════════════════════════════════════════
-#  GET /api/videos/{id}/hls/playlist.m3u8  (Feature 6)
+#  GET /api/videos/{id}/hls/playlist.m3u8
 # ══════════════════════════════════════════════════════
 @router.get("/{video_id}/hls/playlist.m3u8")
 def get_hls_playlist(
@@ -403,7 +567,7 @@ def get_hls_playlist(
 
 
 # ══════════════════════════════════════════════════════
-#  POST /api/videos/{id}/hls/convert  (Feature 6)
+#  POST /api/videos/{id}/hls/convert
 # ══════════════════════════════════════════════════════
 @router.post("/{video_id}/hls/convert")
 def trigger_hls_conversion(
@@ -422,32 +586,9 @@ def trigger_hls_conversion(
         _run_hls_conversion,
         video_id=video_id,
         input_path=video.file_path,
-        upload_dir=settings.UPLOAD_DIR,
     )
 
     return {"message": "بدأ التحويل إلى HLS في الخلفية"}
-
-
-def _run_hls_conversion(video_id: str, input_path: str, upload_dir: str):
-    from app.database import SessionLocal, Video
-    db = SessionLocal()
-    try:
-        from app.hls import convert_to_hls
-        playlist_path = convert_to_hls(video_id, input_path, upload_dir)
-        video = db.query(Video).filter(Video.id == video_id).first()
-        if video:
-            video.hls_playlist_path = playlist_path
-            video.hls_ready = True
-            db.commit()
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"HLS conversion failed: {e}")
-        video = db.query(Video).filter(Video.id == video_id).first()
-        if video:
-            video.hls_ready = False
-            db.commit()
-    finally:
-        db.close()
 
 
 # ══════════════════════════════════════════════════════

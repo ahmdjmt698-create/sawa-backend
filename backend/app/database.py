@@ -111,6 +111,9 @@ class Video(Base):
     hls_ready = Column(Boolean, default=False)
     hls_playlist_path = Column(String, nullable=True)
 
+    # ── الصورة المصغرة ─────────────────────────────
+    thumbnail_path = Column(String, nullable=True)
+
     # ── البيانات الوصفية ─────────────────────────────
     views_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=_utcnow)

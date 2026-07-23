@@ -9,6 +9,8 @@ const API_BASE = import.meta.env.VITE_API_URL
 
 let csrfToken = null;
 
+const NO_REFRESH_PATHS = ["/auth/login", "/auth/register", "/auth/refresh", "/auth/logout"];
+
 async function initCsrf() {
   try {
     const res = await fetch(`${API_BASE}/auth/csrf-token`, { credentials: "include" });
@@ -39,8 +41,7 @@ async function request(method, path, body, isFormData = false, isRetry = false) 
   });
 
   // تجديد التوكن التلقائي عند 401
-  const noRefreshPaths = ["/auth/login", "/auth/register", "/auth/refresh"];
-  if (res.status === 401 && !isRetry && !noRefreshPaths.some(p => path.includes(p))) {
+  if (res.status === 401 && !isRetry && !NO_REFRESH_PATHS.some((p) => path.startsWith(p))) {
     try {
       const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
         method: "POST",

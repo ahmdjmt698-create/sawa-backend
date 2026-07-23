@@ -1,9 +1,10 @@
 """
 تحويل الفيديوهات إلى تنسيق HLS — عالي الجودة مع عدة دقات
-يعمل كمهمة خلفية بعد رفع الفيديو مباشرة
+يولّد محلياً ثم يرفع إلى R2 إن كان التخزين سحابياً
 """
 import os
 import logging
+import shutil
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,12 @@ RENDITIONS = [
     {"suffix": "720p",  "height": 720,  "video_bitrate": "1500k", "maxrate": "1650k", "bufsize": "3000k"},
     {"suffix": "1080p", "height": 1080, "video_bitrate": "3000k", "maxrate": "3300k", "bufsize": "6000k"},
 ]
+
+# ── Content-Type حسب الامتداد ────────────────────────
+_CONTENT_TYPES = {
+    ".m3u8": "application/vnd.apple.mpegurl",
+    ".ts":   "video/mp2t",
+}
 
 
 def _get_video_height(input_path: str) -> int:
@@ -33,19 +40,8 @@ def convert_to_hls(video_id: str, input_path: str, storage_key: str = None, stor
     """
     يحوّل ملف فيديو إلى تنسيق HLS مع عدة دقات (adaptive bitrate).
 
-    يُنشئ:
-        hls/{video_id}/
-            master.m3u8         ← قائمة التشغيل الرئيسية
-            360p/
-                playlist.m3u8   ← قائمة 360p
-                seg_000.ts
-                ...
-            720p/
-                playlist.m3u8
-                seg_000.ts
-                ...
-
-    يُعيد مسار master.m3u8 أو يرفع استثناءً عند الفشل.
+    يولّد الملفات محلياً (ffmpeg يحتاج مسار محلي)، ثم يرفعها إلى R2 إن كان
+    التخزين سحابياً. يُعيد مفتاح التخزين (R2 key أو مسار محلي) لـ master.m3u8.
     """
     try:
         import ffmpeg
@@ -57,12 +53,10 @@ def convert_to_hls(video_id: str, input_path: str, storage_key: str = None, stor
 
     original_height = _get_video_height(input_path)
 
-    # اختر الدقات الأقل من أو تساوي الارتفاع الأصلي
     active_renditions = [r for r in RENDITIONS if r["height"] <= original_height]
     if not active_renditions:
         active_renditions = [RENDITIONS[0]]
 
-    # مجلد HLS الخاص بهذا الفيديو
     hls_dir = os.path.join("hls", video_id)
     os.makedirs(hls_dir, exist_ok=True)
 
@@ -95,7 +89,6 @@ def convert_to_hls(video_id: str, input_path: str, storage_key: str = None, stor
                     maxrate=rendition["maxrate"],
                     bufsize=rendition["bufsize"],
                     vf=f"scale=w=-2:h={rendition['height']}:force_original_aspect_ratio=decrease",
-                    # Fallback: إذا كان الفيديو أقصر من الدقة المطلوبة
                     **{"movflags": "+faststart"},
                 )
                 .overwrite_output()
@@ -112,11 +105,18 @@ def convert_to_hls(video_id: str, input_path: str, storage_key: str = None, stor
     if not playlist_paths:
         raise RuntimeError("فشل تحويل HLS لجميع الدقات")
 
-    # إنشاء Master Playlist
     master_path = os.path.join(hls_dir, "master.m3u8")
     _write_master_playlist(master_path, playlist_paths)
 
-    logger.info(f"✅ [HLS] اكتمل التحويل: {len(active_renditions)} دقة — {master_path}")
+    logger.info(f"✅ [HLS] اكتمل التحويل محلياً: {len(active_renditions)} دقة — {master_path}")
+
+    # ── ارفع إلى R2 إن كان التخزين سحابياً ──
+    if storage is not None and hasattr(storage, "client") and hasattr(storage, "bucket"):
+        r2_master_key = _upload_hls_to_r2(hls_dir, video_id, storage)
+        # نظّف الملفات المحلية بعد الرفع
+        shutil.rmtree(hls_dir, ignore_errors=True)
+        return r2_master_key
+
     return master_path
 
 
@@ -136,6 +136,37 @@ def _write_master_playlist(master_path: str, playlist_paths: list):
     os.makedirs(os.path.dirname(master_path), exist_ok=True)
     with open(master_path, "w") as f:
         f.write("\n".join(lines))
+
+
+def _upload_hls_to_r2(hls_dir: str, video_id: str, storage) -> str:
+    """
+    يرفع جميع ملفات HLS إلى R2 ويعيد مفتاح master.m3u8.
+    """
+    r2_prefix = f"hls/{video_id}"
+    master_r2_key = None
+
+    for root, _dirs, files in os.walk(hls_dir):
+        for fname in files:
+            local_file = os.path.join(root, fname)
+            rel_path = os.path.relpath(local_file, hls_dir)
+            r2_key = f"{r2_prefix}/{rel_path}"
+
+            ext = os.path.splitext(fname)[1].lower()
+            content_type = _CONTENT_TYPES.get(ext, "application/octet-stream")
+
+            with open(local_file, "rb") as f:
+                storage.put(r2_key, f.read(), content_type)
+
+            if fname == "master.m3u8":
+                master_r2_key = r2_key
+
+            logger.debug(f"📤 [HLS→R2] {r2_key}")
+
+    if not master_r2_key:
+        raise RuntimeError("master.m3u8 not found after R2 upload")
+
+    logger.info(f"✅ [HLS→R2] تم رفع {r2_prefix}/ إلى R2 — master: {master_r2_key}")
+    return master_r2_key
 
 
 def run_hls_conversion_task(video_id: str, file_path: str, storage_key: str = None):

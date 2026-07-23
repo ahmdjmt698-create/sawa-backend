@@ -2,7 +2,9 @@
 سوى — Backend (Production Ready)
 """
 import os
+import sys
 import logging
+import traceback
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 
@@ -13,7 +15,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from app.limiter import limiter
@@ -40,6 +41,53 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("sawa")
+
+# ── Startup Diagnostic: log storage config ────────────
+def _log_storage_config():
+    r2_bucket = os.environ.get("R2_BUCKET_NAME", "")
+    r2_endpoint = os.environ.get("R2_ENDPOINT", "")
+    r2_key_id = os.environ.get("R2_ACCESS_KEY_ID", "")
+    r2_secret = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+    r2_public = os.environ.get("R2_PUBLIC_URL", "")
+
+    if r2_bucket:
+        missing = []
+        if not r2_endpoint:
+            missing.append("R2_ENDPOINT")
+        if not r2_key_id:
+            missing.append("R2_ACCESS_KEY_ID")
+        if not r2_secret:
+            missing.append("R2_SECRET_ACCESS_KEY")
+        if missing:
+            logger.error(f"❌ R2_BUCKET_NAME is set but MISSING: {', '.join(missing)} — "
+                         "R2Storage.__init__ will raise KeyError on startup!")
+        else:
+            logger.info(f"✅ R2 configured: bucket={r2_bucket}, endpoint={r2_endpoint[:40]}..., "
+                        f"public_url={r2_public or '(none)'}")
+    else:
+        logger.info(f"ℹ️  R2_BUCKET_NAME not set — using local storage: {settings.UPLOAD_DIR}")
+
+    logger.info(f"   ENVIRONMENT={settings.ENVIRONMENT}, UPLOAD_DIR={settings.UPLOAD_DIR}")
+
+_log_storage_config()
+
+# ── Startup Diagnostic: log dependency versions ───────
+def _log_dependency_versions():
+    deps = ["fastapi", "starlette", "python_multipart", "uvicorn",
+            "sqlalchemy", "pydantic", "boto3", "slowapi"]
+    for dep in deps:
+        try:
+            mod = __import__(dep)
+            ver = getattr(mod, "__version__", getattr(mod, "VERSION", "?"))
+            if isinstance(ver, tuple):
+                ver = ".".join(str(x) for x in ver)
+            logger.info(f"   {dep}=={ver}")
+        except ImportError:
+            logger.warning(f"   {dep}: NOT INSTALLED")
+        except Exception as e:
+            logger.warning(f"   {dep}: version check failed ({e})")
+
+_log_dependency_versions()
 
 # ── Rate Limiter (shared across routers) ─────────────
 
@@ -131,24 +179,76 @@ app.add_middleware(
 )
 
 
-# ── CORS Safety Net ──────────────────────────────────
-# If an unhandled exception bypasses CORSMiddleware, this middleware
-# ensures the CORS headers are still present on the error response.
-class CORSSafetyMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        origin = request.headers.get("origin", "")
+# ── CORS Safety Net (pure ASGI — no body buffering) ──
+# BaseHTTPMiddleware buffers the request body, which breaks large file
+# uploads (multipart parser gets a truncated/corrupted stream → 400).
+# This pure ASGI version passes `receive` through untouched.
+class CORSSafetyMiddleware:
+    """ ensures CORS headers on error responses that bypass CORSMiddleware. """
+
+    def __init__(self, app, allowed_origins: list):
+        self.app = app
+        self.allowed_origins = set(allowed_origins)
+
+    def _get_origin(self, scope) -> str:
+        for name, value in scope.get("headers", []):
+            if name == b"origin":
+                return value.decode("latin-1")
+        return ""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        origin = self._get_origin(scope)
+        add_cors = origin in self.allowed_origins
+
+        async def send_with_cors(message):
+            if add_cors and message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"access-control-allow-origin", origin.encode("latin-1")))
+                headers.append((b"access-control-allow-credentials", b"true"))
+                headers.append((b"vary", b"Origin"))
+                message["headers"] = headers
+            await send(message)
+
         try:
-            response = await call_next(request)
+            await self.app(scope, receive, send_with_cors)
+        except Exception as exc:
+            logger.exception("Unhandled exception in request handler")
+            sentry_sdk.capture_exception(exc)
+            body = b'{"detail":"Internal Server Error"}'
+            response = Response(status_code=500, content=body, media_type="application/json")
+            await response(scope, receive, send)
+
+app.add_middleware(CORSSafetyMiddleware, allowed_origins=cors_origins)
+
+
+# ── Error Logger (logs full traceback for ALL 500s) ───
+class ErrorLoggerMiddleware:
+    """Logs full traceback + request details for any unhandled exception.
+    Runs OUTSIDE the app so it catches everything, including middleware errors."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        try:
+            await self.app(scope, receive, send)
         except Exception:
-            response = Response(status_code=500, content="Internal Server Error")
+            method = scope.get("method", "?")
+            path = scope.get("path", "?")
+            client = scope.get("client", ("?", 0))
+            logger.error(
+                f"💥 UNHANDLED EXCEPTION on {method} {path} from {client[0]}:{client[1]}\n"
+                f"{traceback.format_exc()}"
+            )
+            raise
 
-        if origin and origin in cors_origins:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Vary"] = "Origin"
-        return response
-
-app.add_middleware(CORSSafetyMiddleware)
+app.add_middleware(ErrorLoggerMiddleware)
 
 # ── Upload Dir (ensure exists) ────────────────────────
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

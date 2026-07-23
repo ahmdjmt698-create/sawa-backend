@@ -55,7 +55,7 @@ class UnlockShareRequest(BaseModel):
 # ══════════════════════════════════════════════════════
 #  مهمة خلفية: التفريغ الصوتي + HLS + صورة مصغرة
 # ══════════════════════════════════════════════════════
-def run_transcription_task(video_id: str, file_path: str, language: str, noise_reduction: bool = False):
+def run_transcription_task(video_id: str, file_path: str, language: str, noise_reduction: bool = False, r2_key: str = None):
     from app.database import Transcript, Video, TranscriptStatus, SessionLocal
     import json
 
@@ -192,16 +192,28 @@ async def upload_video(
 
     video_id  = str(uuid.uuid4())
     filename  = f"{video_id}.{ext}"
-    file_path = os.path.join(settings.UPLOAD_DIR, filename)
+
+    store = storage()
+    use_r2 = hasattr(store, "client") and hasattr(store, "bucket")  # R2Storage
+
+    r2_key = None
+    if use_r2:
+        r2_key = f"users/{current_user.id}/videos/{video_id}/{filename}"
+        file_path = r2_key
+    else:
+        file_path = os.path.join(settings.UPLOAD_DIR, filename)
 
     max_bytes = settings.MAX_FILE_SIZE_MB * 1024 * 1024
     total_bytes = 0
-    async with aiofiles.open(file_path, "wb") as buffer:
+
+    # ── اكتب الملف محلياً (للخلفية) + ارفع إلى R2 إن وُجد ──
+    tmp_path = file_path if not use_r2 else os.path.join(settings.UPLOAD_DIR, filename)
+    async with aiofiles.open(tmp_path, "wb") as buffer:
         while chunk := await file.read(1024 * 1024):
             total_bytes += len(chunk)
             if total_bytes > max_bytes:
                 await buffer.close()
-                os.remove(file_path)
+                os.remove(tmp_path)
                 raise HTTPException(
                     status_code=413,
                     detail=f"الملف أكبر من الحد الأقصى ({settings.MAX_FILE_SIZE_MB} ميجابايت)",
@@ -209,6 +221,16 @@ async def upload_video(
             await buffer.write(chunk)
 
     file_size = total_bytes
+
+    # ── ارفع إلى R2 ──
+    if use_r2:
+        try:
+            with open(tmp_path, "rb") as f:
+                store.put(r2_key, f.read(), file.content_type or "application/octet-stream")
+        except Exception as e:
+            logger.error(f"R2 upload failed: {e}")
+            os.remove(tmp_path)
+            raise HTTPException(status_code=500, detail="فشل رفع الملف إلى التخزين السحابي")
 
     video = Video(
         id          = video_id,
@@ -230,24 +252,27 @@ async def upload_video(
     # ── تفريغ صوتي ──
     background_tasks.add_task(
         run_transcription_task,
-        video_id  = video_id,
-        file_path = file_path,
-        language  = dialect,
+        video_id     = video_id,
+        file_path    = tmp_path if use_r2 else file_path,
+        r2_key       = r2_key,
+        language     = dialect,
         noise_reduction = noise_reduction,
     )
 
     # ── تحويل HLS تلقائي ──
     background_tasks.add_task(
         _run_hls_conversion,
-        video_id=video_id,
-        input_path=file_path,
+        video_id  = video_id,
+        input_path = tmp_path if use_r2 else file_path,
+        r2_key    = r2_key,
     )
 
     # ── صورة مصغرة تلقائية ──
     background_tasks.add_task(
         _run_thumbnail_generation,
-        video_id=video_id,
-        file_path=file_path,
+        video_id  = video_id,
+        file_path = tmp_path if use_r2 else file_path,
+        r2_key   = r2_key,
     )
 
     response = VideoResponse.model_validate(video)
@@ -255,15 +280,25 @@ async def upload_video(
     return response
 
 
-def _run_hls_conversion(video_id: str, input_path: str):
+def _run_hls_conversion(video_id: str, input_path: str, r2_key: str = None):
     from app.database import SessionLocal, Video
     db = SessionLocal()
+    tmp_file = None
     try:
+        from app.storage import storage
+        store = storage()
+
+        # ── حمّل من R2 إن لم يكن الملف محلياً ──
+        if r2_key and not os.path.exists(input_path):
+            tmp_file = os.path.join(settings.UPLOAD_DIR, f"hls_{video_id}.tmp")
+            store.download(r2_key, tmp_file)
+            input_path = tmp_file
+
         from app.hls import convert_to_hls
-        playlist_path = convert_to_hls(video_id, input_path)
+        playlist_key = convert_to_hls(video_id, input_path, storage=store)
         video = db.query(Video).filter(Video.id == video_id).first()
         if video:
-            video.hls_playlist_path = playlist_path
+            video.hls_playlist_path = playlist_key
             video.hls_ready = True
             db.commit()
     except Exception as e:
@@ -275,23 +310,38 @@ def _run_hls_conversion(video_id: str, input_path: str):
             db.commit()
     finally:
         db.close()
+        if tmp_file and os.path.exists(tmp_file):
+            os.remove(tmp_file)
 
 
-def _run_thumbnail_generation(video_id: str, file_path: str):
+def _run_thumbnail_generation(video_id: str, file_path: str, r2_key: str = None):
     from app.database import SessionLocal, Video
     db = SessionLocal()
+    tmp_file = None
     try:
+        from app.storage import storage
+        store = storage()
+
+        # ── حمّل من R2 إن لم يكن الملف محلياً ──
+        if r2_key and not os.path.exists(file_path):
+            tmp_file = os.path.join(settings.UPLOAD_DIR, f"thumb_{video_id}.tmp")
+            store.download(r2_key, tmp_file)
+            file_path = tmp_file
+
         from app.thumbnails import generate_thumbnail
-        thumbnail_path = generate_thumbnail(file_path, video_id)
+        thumbnail_key = generate_thumbnail(file_path, video_id, storage=store)
         video = db.query(Video).filter(Video.id == video_id).first()
         if video:
-            video.thumbnail_path = thumbnail_path
+            video.thumbnail_path = thumbnail_key
             db.commit()
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Thumbnail generation failed: {e}")
     finally:
         db.close()
+        # نظّف الملف المؤقت الذي حمّلناه من R2
+        if tmp_file and os.path.exists(tmp_file):
+            os.remove(tmp_file)
 
 
 # ══════════════════════════════════════════════════════
@@ -395,13 +445,21 @@ def stream_video_by_share_token(
         if not verify_password(password, video.share_password_hash):
             raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
 
-    if not os.path.exists(video.file_path):
+    # ── R2: أعد تحويلة إلى presigned URL ──
+    store = storage()
+    presigned = store.get_presigned_read_url(video.file_path)
+    if presigned and presigned.startswith("http"):
+        return RedirectResponse(url=presigned, status_code=302)
+
+    # ── محلي: قدّم الملف مباشرة ──
+    local = store.get_local_path(video.file_path)
+    if not local:
         raise HTTPException(status_code=404, detail="الملف غير موجود على الخادم")
 
     return FileResponse(
-        path        = video.file_path,
+        path        = local,
         media_type  = video.mime_type or "application/octet-stream",
-        filename    = Path(video.file_path).name,
+        filename    = Path(local).name,
         headers     = {"Accept-Ranges": "bytes"},
     )
 
@@ -526,13 +584,21 @@ def stream_video(
         if not current_user or video.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="ليس لديك صلاحية لمشاهدة هذا الفيديو")
 
-    if not os.path.exists(video.file_path):
+    # ── R2: أعد تحويلة إلى presigned URL ──
+    store = storage()
+    presigned = store.get_presigned_read_url(video.file_path)
+    if presigned and presigned.startswith("http"):
+        return RedirectResponse(url=presigned, status_code=302)
+
+    # ── محلي: قدّم الملف مباشرة ──
+    local = store.get_local_path(video.file_path)
+    if not local:
         raise HTTPException(status_code=404, detail="الملف غير موجود على الخادم")
 
     return FileResponse(
-        path        = video.file_path,
+        path        = local,
         media_type  = video.mime_type or "application/octet-stream",
-        filename    = Path(video.file_path).name,
+        filename    = Path(local).name,
         headers     = {"Accept-Ranges": "bytes"},
     )
 
@@ -553,11 +619,19 @@ def get_hls_playlist(
     if not video.hls_ready or not video.hls_playlist_path:
         raise HTTPException(404, "HLS غير جاهز بعد")
 
-    if not os.path.exists(video.hls_playlist_path):
+    # ── R2: أعد تحويلة إلى presigned URL ──
+    store = storage()
+    presigned = store.get_presigned_read_url(video.hls_playlist_path)
+    if presigned and presigned.startswith("http"):
+        return RedirectResponse(url=presigned, status_code=302)
+
+    # ── محلي ──
+    local = store.get_local_path(video.hls_playlist_path)
+    if not local:
         raise HTTPException(404, "ملف HLS غير موجود")
 
     return FileResponse(
-        path=video.hls_playlist_path,
+        path=local,
         media_type="application/vnd.apple.mpegurl",
         headers={
             "Cache-Control": "public, max-age=10",
@@ -582,10 +656,14 @@ def trigger_hls_conversion(
     if not video:
         raise HTTPException(404, "الفيديو غير موجود أو ليس لديك صلاحية")
 
+    store = storage()
+    input_path = store.get_local_path(video.file_path) or video.file_path
+
     background_tasks.add_task(
         _run_hls_conversion,
         video_id=video_id,
-        input_path=video.file_path,
+        input_path=input_path,
+        r2_key=video.file_path if not store.get_local_path(video.file_path) else None,
     )
 
     return {"message": "بدأ التحويل إلى HLS في الخلفية"}
@@ -608,8 +686,18 @@ def delete_video(
     if not video:
         raise HTTPException(status_code=404, detail="الفيديو غير موجود أو ليس لديك صلاحية حذفه")
 
-    if os.path.exists(video.file_path):
-        os.remove(video.file_path)
+    # ── احذف من التخزين ──
+    try:
+        storage().delete(video.file_path)
+    except Exception:
+        pass
+
+    # ── احذف الصورة المصغرة ──
+    if video.thumbnail_path:
+        try:
+            storage().delete(video.thumbnail_path)
+        except Exception:
+            pass
 
     db.delete(video)
     db.commit()

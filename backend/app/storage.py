@@ -89,6 +89,11 @@ class R2Storage(StorageBackend):
             region_name="auto",
         )
 
+    def download(self, key: str, local_path: str) -> None:
+        """حمّل ملفاً من R2 إلى مسار محلي."""
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        self.client.download_file(self.bucket, key, local_path)
+
     def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
         self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
         return key
@@ -103,6 +108,8 @@ class R2Storage(StorageBackend):
         return {"url": url, "fields": {"Content-Type": content_type}}
 
     def get_presigned_read_url(self, key: str, expires: int = 3600) -> str:
+        if not key:
+            return None
         if self.public_url:
             return f"{self.public_url}/{key}"
         return self.client.generate_presigned_url(

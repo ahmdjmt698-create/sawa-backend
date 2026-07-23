@@ -635,7 +635,6 @@ def get_hls_playlist(
         media_type="application/vnd.apple.mpegurl",
         headers={
             "Cache-Control": "public, max-age=10",
-            "Access-Control-Allow-Origin": "*",
         },
     )
 

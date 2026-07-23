@@ -147,17 +147,16 @@ async def api_exception_handler(request: Request, exc: APIException):
     )
 
 # ── CORS ─────────────────────────────────────────────
-ALLOWED_ORIGINS = [
+ALLOWED_ORIGINS = {
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-]
+}
 
-frontend_url = os.getenv("FRONTEND_URL", "")
+frontend_url = os.getenv("FRONTEND_URL", "").strip()
 if frontend_url:
-    ALLOWED_ORIGINS.append(frontend_url)
-    ALLOWED_ORIGINS.append(frontend_url.rstrip("/"))
+    ALLOWED_ORIGINS.add(frontend_url.rstrip("/"))
 
 # Additional origins from comma-separated env var
 extra_origins = os.getenv("CORS_ORIGINS", "")
@@ -165,9 +164,9 @@ if extra_origins:
     for origin in extra_origins.split(","):
         origin = origin.strip()
         if origin:
-            ALLOWED_ORIGINS.append(origin)
+            ALLOWED_ORIGINS.add(origin)
 
-cors_origins = list({o for o in ALLOWED_ORIGINS if o})
+cors_origins = sorted(o for o in ALLOWED_ORIGINS if o)
 
 app.add_middleware(
     CORSMiddleware,
@@ -184,36 +183,17 @@ app.add_middleware(
 # uploads (multipart parser gets a truncated/corrupted stream → 400).
 # This pure ASGI version passes `receive` through untouched.
 class CORSSafetyMiddleware:
-    """ ensures CORS headers on error responses that bypass CORSMiddleware. """
+    """ Catches unhandled exceptions, logs to Sentry, returns 500. """
 
-    def __init__(self, app, allowed_origins: list):
+    def __init__(self, app):
         self.app = app
-        self.allowed_origins = set(allowed_origins)
-
-    def _get_origin(self, scope) -> str:
-        for name, value in scope.get("headers", []):
-            if name == b"origin":
-                return value.decode("latin-1")
-        return ""
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
 
-        origin = self._get_origin(scope)
-        add_cors = origin in self.allowed_origins
-
-        async def send_with_cors(message):
-            if add_cors and message["type"] == "http.response.start":
-                headers = list(message.get("headers", []))
-                headers.append((b"access-control-allow-origin", origin.encode("latin-1")))
-                headers.append((b"access-control-allow-credentials", b"true"))
-                headers.append((b"vary", b"Origin"))
-                message["headers"] = headers
-            await send(message)
-
         try:
-            await self.app(scope, receive, send_with_cors)
+            await self.app(scope, receive, send)
         except Exception as exc:
             logger.exception("Unhandled exception in request handler")
             sentry_sdk.capture_exception(exc)
@@ -221,7 +201,7 @@ class CORSSafetyMiddleware:
             response = Response(status_code=500, content=body, media_type="application/json")
             await response(scope, receive, send)
 
-app.add_middleware(CORSSafetyMiddleware, allowed_origins=cors_origins)
+app.add_middleware(CORSSafetyMiddleware)
 
 
 # ── Error Logger (logs full traceback for ALL 500s) ───

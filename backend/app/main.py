@@ -146,19 +146,24 @@ async def api_exception_handler(request: Request, exc: APIException):
         headers=exc.headers,
     )
 
-# ── CORS ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════
+#  CORS — المُصلح 🔧
+# ══════════════════════════════════════════════════════
 ALLOWED_ORIGINS = {
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    # ← أضف نطاق فرونتندك مباشرة هنا (احتياط)
+    "https://sawa-plum.vercel.app",
 }
 
+# من متغير البيئة FRONTEND_URL
 frontend_url = os.getenv("FRONTEND_URL", "").strip()
 if frontend_url:
     ALLOWED_ORIGINS.add(frontend_url.rstrip("/"))
 
-# Additional origins from comma-separated env var
+# من متغير إضافي CORS_ORIGINS (لأكثر من نطاق)
 extra_origins = os.getenv("CORS_ORIGINS", "")
 if extra_origins:
     for origin in extra_origins.split(","):
@@ -168,21 +173,32 @@ if extra_origins:
 
 cors_origins = sorted(o for o in ALLOWED_ORIGINS if o)
 
+logger.info(f"🌐 CORS origins: {cors_origins}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
-    expose_headers=["Set-Cookie"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-CSRF-Token",
+        "X-Requested-With",
+        "Accept",
+        "Accept-Language",
+        "Accept-Encoding",
+        "Origin",
+        "Referer",
+        "User-Agent",
+    ],
+    expose_headers=["Set-Cookie", "X-Request-Id"],
+    max_age=600,  # cache preflight لـ 10 دقائق
 )
 
 
-# ── CORS Safety Net (pure ASGI — no body buffering) ──
-# BaseHTTPMiddleware buffers the request body, which breaks large file
-# uploads (multipart parser gets a truncated/corrupted stream → 400).
-# This pure ASGI version passes `receive` through untouched.
-class CORSSafetyMiddleware:
+# ── Error Safety Net (pure ASGI — no body buffering) ──
+class ErrorSafetyMiddleware:
     """ Catches unhandled exceptions, logs to Sentry, returns 500. """
 
     def __init__(self, app):
@@ -201,13 +217,12 @@ class CORSSafetyMiddleware:
             response = Response(status_code=500, content=body, media_type="application/json")
             await response(scope, receive, send)
 
-app.add_middleware(CORSSafetyMiddleware)
+app.add_middleware(ErrorSafetyMiddleware)
 
 
 # ── Error Logger (logs full traceback for ALL 500s) ───
 class ErrorLoggerMiddleware:
-    """Logs full traceback + request details for any unhandled exception.
-    Runs OUTSIDE the app so it catches everything, including middleware errors."""
+    """Logs full traceback + request details for any unhandled exception."""
 
     def __init__(self, app):
         self.app = app

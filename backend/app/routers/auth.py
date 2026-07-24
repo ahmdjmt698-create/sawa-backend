@@ -128,7 +128,8 @@ def get_csrf_token(response: Response):
     response.set_cookie(
         "csrf_token", token,
         httponly=False,
-        samesite="strict",
+        secure=settings.COOKIE_SECURE,
+        samesite="none" if settings.COOKIE_SECURE else "lax",
         max_age=60 * 60,
     )
     return {"csrf_token": token}

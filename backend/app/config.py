@@ -2,6 +2,7 @@
 الإعدادات المركزية لمشروع سوى
 """
 from pydantic_settings import BaseSettings
+from pydantic import model_validator
 from typing import Optional
 
 
@@ -52,6 +53,12 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     BACKEND_URL: str = "http://localhost:8000"
     ENVIRONMENT: str = "development"
+
+    @model_validator(mode="after")
+    def _auto_cookie_secure(self):
+        if self.ENVIRONMENT == "production":
+            self.COOKIE_SECURE = True
+        return self
 
     # ── Cloudflare R2 (اختياري) ──────────────────────
     R2_BUCKET_NAME: Optional[str] = None

@@ -1,484 +1,176 @@
 """
-راوتر المصادقة — تسجيل، دخول، خروج، CSRF، إعدادات، نسيان كلمة المرور
+app/auth.py — المصادقة الأساسية + كوكيز cross-domain
 """
-import random
-import string
+import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Request, Cookie, Header
-from pydantic import BaseModel, EmailStr, Field
+from fastapi import Request, HTTPException, status, Response
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
 
-from app.database import get_db, User, RefreshToken, PasswordResetOTP
-from app.exceptions import APIException
-from app.auth import (
-    hash_password,
-    verify_password,
-    create_access_token,
-    create_refresh_token,
-    hash_token,
-    create_password_reset_token,
-    decode_token,
-    set_auth_cookie,
-    set_refresh_cookie,
-    clear_auth_cookie,
-    clear_refresh_cookie,
-    delete_auth_cookies,
-    ACCESS_COOKIE_MAX_AGE,
-    REFRESH_COOKIE_MAX_AGE,
-    require_auth,
-)
+from app.database import get_db, User, SessionLocal
 from app.config import settings
-from app.limiter import limiter
 
-router = APIRouter()
+# ── Password hashing ─────────────────────────────────
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# ── JWT ──────────────────────────────────────────────
+ALGORITHM = settings.ALGORITHM
+SECRET_KEY = settings.SECRET_KEY
 
-# ══════════════════════════════════════════════════════
-#  Schemas
-# ══════════════════════════════════════════════════════
-class RegisterRequest(BaseModel):
-    name: str = Field(..., min_length=2, max_length=50)
-    email: EmailStr
-    password: str
+ACCESS_COOKIE_MAX_AGE = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+REFRESH_COOKIE_MAX_AGE = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
 
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+# ── Cross-domain cookie settings ─────────────────────
+# في الإنتاج: SameSite=None + Secure=True (إلزامي للـ cross-domain)
+_COOKIE_SECURE = settings.COOKIE_SECURE
+_COOKIE_SAMESITE = "none" if _COOKIE_SECURE else "lax"
 
 
-class UserResponse(BaseModel):
-    id: str
-    name: str
-    email: str
-    plan: str
-
-    class Config:
-        from_attributes = True
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
 
 
-class NameUpdateRequest(BaseModel):
-    name: str = Field(..., min_length=2, max_length=50)
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
 
 
-class PasswordChangeRequest(BaseModel):
-    current_password: str
-    new_password: str
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire, "type": "access"})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
+def create_refresh_token() -> str:
+    return uuid.uuid4().hex
 
 
-class VerifyOTPRequest(BaseModel):
-    email: EmailStr
-    otp: str = Field(..., min_length=6, max_length=6)
+def hash_token(token: str) -> str:
+    return pwd_context.hash(token)
 
 
-class ResetPasswordRequest(BaseModel):
-    reset_token: str
-    new_password: str
+def create_password_reset_token(user_id: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    return jwt.encode({"sub": user_id, "exp": expire, "type": "password_reset"}, SECRET_KEY, algorithm=ALGORITHM)
 
 
-# ══════════════════════════════════════════════════════
-#  مساعدات
-# ══════════════════════════════════════════════════════
-def _issue_tokens(response: Response, user: User):
-    """يُصدر توكنين (access + refresh) ويضبطهما كوكيز"""
-    access_token = create_access_token({"sub": user.id})
-    raw_refresh = create_refresh_token()
-    refresh_hash = hash_token(raw_refresh)
-
-    db_refresh = RefreshToken(
-        user_id=user.id,
-        token_hash=refresh_hash,
-        expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-    )
-
-    # نستخدم جلسة مستقلة لأننا قد لا نملك db في كل الحالات
-    from app.database import SessionLocal
-    db = SessionLocal()
+def decode_token(token: str) -> Optional[dict]:
     try:
-        db.add(db_refresh)
-        db.commit()
-    finally:
-        db.close()
-
-    set_auth_cookie(response, access_token)
-    set_refresh_cookie(response, raw_refresh)
-
-
-def _generate_otp() -> str:
-    """ينشئ رمز تحقق من 6 أرقام"""
-    return "".join(random.choices(string.digits, k=6))
+        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        return None
 
 
 # ══════════════════════════════════════════════════════
-#  CSRF Token
+#  Cookie Helpers — CROSS-DOMAIN FIXED 🔧
 # ══════════════════════════════════════════════════════
-@router.get("/csrf-token")
-def get_csrf_token(response: Response):
-    """يُنشئ CSRF token ويضعه في كوكيز"""
-    from itsdangerous import URLSafeTimedSerializer
-    serializer = URLSafeTimedSerializer(settings.SECRET_KEY)
-    token = serializer.dumps("csrf")
+def set_auth_cookie(response: Response, token: str):
     response.set_cookie(
-        "csrf_token", token,
-        httponly=False,
-        secure=settings.COOKIE_SECURE,
-        samesite="none" if settings.COOKIE_SECURE else "lax",
-        max_age=60 * 60,
+        key="sawa_access",
+        value=token,
+        httponly=True,
+        secure=_COOKIE_SECURE,
+        samesite=_COOKIE_SAMESITE,
+        max_age=ACCESS_COOKIE_MAX_AGE,
+        path="/",
     )
-    return {"csrf_token": token}
 
 
-# ══════════════════════════════════════════════════════
-#  تسجيل مستخدم جديد
-# ══════════════════════════════════════════════════════
-@router.post("/register", status_code=201)
-def register(
-    response: Response,
-    payload: RegisterRequest,
-    db: Session = Depends(get_db),
-):
-    """
-    تسجيل مستخدم جديد.
-    يُعيّد كوكيز httpOnly بدلاً من التوكن في الـ body.
-    """
-    existing = db.query(User).filter(User.email == payload.email).first()
-    if existing:
-        raise APIException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="هذا البريد الإلكتروني مسجل مسبقاً",
-            error_code="EMAIL_EXISTS",
-        )
-
-    user = User(
-        name=payload.name,
-        email=payload.email,
-        hashed_password=hash_password(payload.password),
+def set_refresh_cookie(response: Response, token: str):
+    response.set_cookie(
+        key="sawa_refresh",
+        value=token,
+        httponly=True,
+        secure=_COOKIE_SECURE,
+        samesite=_COOKIE_SAMESITE,
+        max_age=REFRESH_COOKIE_MAX_AGE,
+        path="/api/auth/refresh",
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    _issue_tokens(response, user)
-    return {"user": UserResponse.model_validate(user)}
 
 
-# ══════════════════════════════════════════════════════
-#  تسجيل الدخول
-# ══════════════════════════════════════════════════════
-@router.post("/login")
-@limiter.limit("10/minute")
-def login(
-    request: Request,
-    response: Response,
-    payload: LoginRequest,
-    db: Session = Depends(get_db),
-):
-    """
-    تسجيل الدخول — يُعيّد كوكيز httpOnly.
-    """
-    user = db.query(User).filter(User.email == payload.email).first()
-    if not user:
-        raise APIException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="لا يوجد حساب بهذا البريد الإلكتروني",
-            error_code="EMAIL_NOT_FOUND",
-        )
-    if not verify_password(payload.password, user.hashed_password):
-        raise APIException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="كلمة المرور غير صحيحة",
-            error_code="WRONG_PASSWORD",
-        )
-
-    _issue_tokens(response, user)
-    return {"user": UserResponse.model_validate(user)}
+def clear_auth_cookie(response: Response):
+    response.delete_cookie(
+        key="sawa_access",
+        path="/",
+        secure=_COOKIE_SECURE,
+        samesite=_COOKIE_SAMESITE,
+    )
 
 
-# ══════════════════════════════════════════════════════
-#  تسجيل الخروج
-# ══════════════════════════════════════════════════════
-@router.post("/logout")
-def logout(
-    response: Response,
-    sawa_refresh: Optional[str] = Cookie(None),
-    db: Session = Depends(get_db),
-):
-    """حذف الكوكيز وإلغاء توكن التحديث"""
-    if sawa_refresh:
-        refresh_hash = hash_token(sawa_refresh)
-        token_record = db.query(RefreshToken).filter(
-            RefreshToken.token_hash == refresh_hash
-        ).first()
-        if token_record:
-            token_record.revoked = True
-            db.commit()
+def clear_refresh_cookie(response: Response):
+    response.delete_cookie(
+        key="sawa_refresh",
+        path="/api/auth/refresh",
+        secure=_COOKIE_SECURE,
+        samesite=_COOKIE_SAMESITE,
+    )
 
+
+def delete_auth_cookies(response: Response):
     clear_auth_cookie(response)
     clear_refresh_cookie(response)
-    return {"status": "ok"}
 
 
 # ══════════════════════════════════════════════════════
-#  تحديث التوكن (Refresh)
+#  Auth Dependencies
 # ══════════════════════════════════════════════════════
-@router.post("/refresh")
-def refresh_token(
-    response: Response,
-    sawa_refresh: Optional[str] = Cookie(None),
-    db: Session = Depends(get_db),
-):
-    """
-    يُحدّث توكن الوصول باستخدام توكن التحديث.
-    يُدير الدوران: يلغي القديم ويُصدر جديداً.
-    """
-    if not sawa_refresh:
-        raise APIException(status_code=401, detail="لا يوجد توكن تحديث",
-                            error_code="TOKEN_EXPIRED")
-
-    refresh_hash = hash_token(sawa_refresh)
-    token_record = db.query(RefreshToken).filter(
-        and_(
-            RefreshToken.token_hash == refresh_hash,
-            RefreshToken.revoked == False,
-            RefreshToken.expires_at > datetime.now(timezone.utc).replace(tzinfo=None),
-        )
-    ).first()
-
-    if not token_record:
-        raise APIException(status_code=401, detail="توكن التحديث غير صالح أو منتهي",
-                            error_code="TOKEN_EXPIRED")
-
-    # دوران: ألغِ القديم وأصدر جديداً
-    token_record.revoked = True
-    db.commit()
-
-    user = db.query(User).filter(User.id == token_record.user_id).first()
-    if not user:
-        raise APIException(status_code=401, detail="المستخدم غير موجود",
-                            error_code="TOKEN_EXPIRED")
-
-    _issue_tokens(response, user)
-    return {"message": "تم تحديث التوكن بنجاح"}
+security = HTTPBearer(auto_error=False)
 
 
-# ══════════════════════════════════════════════════════
-#  بيانات المستخدم الحالي
-# ══════════════════════════════════════════════════════
-@router.get("/me", response_model=UserResponse)
-def me(current_user: User = Depends(require_auth)):
-    return UserResponse.model_validate(current_user)
+def _get_token_from_request(request: Request) -> Optional[str]:
+    """يجرب الكوكيز أولاً، ثم Authorization header"""
+    token = request.cookies.get("sawa_access")
+    if token:
+        return token
 
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:]
 
-# ══════════════════════════════════════════════════════
-#  تغيير الاسم
-# ══════════════════════════════════════════════════════
-@router.patch("/settings/name", response_model=UserResponse)
-def update_name(
-    data: NameUpdateRequest,
-    current_user: User = Depends(require_auth),
-    db: Session = Depends(get_db),
-):
-    current_user.name = data.name
-    db.commit()
-    db.refresh(current_user)
-    return UserResponse.model_validate(current_user)
-
-
-# ══════════════════════════════════════════════════════
-#  تغيير كلمة المرور
-# ══════════════════════════════════════════════════════
-@router.patch("/settings/password")
-def update_password(
-    response: Response,
-    data: PasswordChangeRequest,
-    current_user: User = Depends(require_auth),
-    db: Session = Depends(get_db),
-):
-    if not verify_password(data.current_password, current_user.hashed_password):
-        raise APIException(
-            status_code=401,
-            detail="كلمة المرور الحالية غير صحيحة",
-            error_code="WRONG_PASSWORD",
-        )
-
-    if len(data.new_password) < 8:
-        raise APIException(
-            status_code=422,
-            detail="كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل وتحتوي على رقم",
-            error_code="VALIDATION_ERROR",
-        )
-
-    if not any(c.isdigit() for c in data.new_password):
-        raise APIException(
-            status_code=422,
-            detail="كلمة المرور الجديدة يجب أن تحتوي على رقم واحد على الأقل",
-            error_code="VALIDATION_ERROR",
-        )
-
-    if verify_password(data.new_password, current_user.hashed_password):
-        raise APIException(
-            status_code=400,
-            detail="كلمة المرور الجديدة مطابقة للقديمة — اختر كلمة مرور مختلفة",
-            error_code="SAME_PASSWORD",
-        )
-
-    current_user.hashed_password = hash_password(data.new_password)
-    db.commit()
-
-    # ألغِ جميع توكنات التحديث لهذه الجلسة (أجبر على إعادة الدخول)
-    db.query(RefreshToken).filter(
-        RefreshToken.user_id == current_user.id
-    ).update({"revoked": True})
-    db.commit()
-
-    delete_auth_cookies(response)
-    return {"message": "تم تغيير كلمة المرور بنجاح"}
-
-
-# ══════════════════════════════════════════════════════
-#  نسيت كلمة المرور — إرسال OTP
-# ══════════════════════════════════════════════════════
-@router.post("/forgot-password")
-@limiter.limit("3/hour")
-def forgot_password(
-    request: Request,
-    data: ForgotPasswordRequest,
-    db: Session = Depends(get_db),
-):
-    """
-    يُرسل رمز OTP إلى البريد الإلكتروني.
-    لا يُكشف هل البريد مسجل أم لا (للأمان).
-    """
-    user = db.query(User).filter(User.email == data.email).first()
-    user_name = user.name if user else ""
-
-    otp = _generate_otp()
-    otp_hash = hash_password(otp)
-
-    otp_record = PasswordResetOTP(
-        email=data.email,
-        otp_hash=otp_hash,
-        expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15),
-    )
-    db.add(otp_record)
-    db.commit()
-
-    # أرسل البريد في الخلفية
+    # HTTPBearer
     try:
-        import asyncio
-        from app.email_service import send_otp_email
-        asyncio.create_task(send_otp_email(data.email, otp, user_name))
-    except Exception as e:
-        pass  # لا نوقف التطبيق إذا فشل البريد
+        creds = security(request)
+        if creds:
+            return creds.credentials
+    except Exception:
+        pass
 
-    return {"message": "إذا كان البريد مسجلاً، ستصله رسالة خلال دقيقة"}
+    return None
 
 
-# ══════════════════════════════════════════════════════
-#  التحقق من OTP
-# ══════════════════════════════════════════════════════
-@router.post("/verify-otp")
-def verify_otp(
-    data: VerifyOTPRequest,
-    db: Session = Depends(get_db),
-):
-    otp_record = (
-        db.query(PasswordResetOTP)
-        .filter(
-            and_(
-                PasswordResetOTP.email == data.email,
-                PasswordResetOTP.used == False,
-                PasswordResetOTP.expires_at > datetime.now(timezone.utc).replace(tzinfo=None),
-            )
-        )
-        .order_by(PasswordResetOTP.created_at.desc())
-        .first()
-    )
+def get_current_user(request: Request, db: Session = None) -> Optional[User]:
+    token = _get_token_from_request(request)
+    if not token:
+        return None
 
-    if not otp_record:
-        raise APIException(
-            status_code=400,
-            detail="انتهت صلاحية الرمز، اطلب رمزاً جديداً",
-            error_code="OTP_EXPIRED",
-        )
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "access":
+        return None
 
-    otp_record.attempts += 1
-    db.commit()
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
 
-    if otp_record.attempts > 5:
-        raise APIException(
-            status_code=429,
-            detail="تجاوزت عدد المحاولات، اطلب رمزاً جديداً",
-            error_code="OTP_MAX_ATTEMPTS",
-        )
+    if db is None:
+        db = SessionLocal()
+        try:
+            return db.query(User).filter(User.id == user_id).first()
+        finally:
+            db.close()
+    return db.query(User).filter(User.id == user_id).first()
 
-    if not verify_password(data.otp, otp_record.otp_hash):
-        remaining = 5 - otp_record.attempts
-        raise APIException(
-            status_code=400,
-            detail=f"الرمز غير صحيح، تبقى {remaining} محاولات",
-            error_code="OTP_INVALID",
-        )
 
-    otp_record.used = True
-    db.commit()
-
-    user = db.query(User).filter(User.email == data.email).first()
+def require_auth(request: Request, db: Session = None) -> User:
+    user = get_current_user(request, db)
     if not user:
-        raise HTTPException(status_code=404, detail="حدث خطأ")
-
-    reset_token = create_password_reset_token(user.id)
-    return {"reset_token": reset_token}
-
-
-# ══════════════════════════════════════════════════════
-#  إعادة تعيين كلمة المرور
-# ══════════════════════════════════════════════════════
-@router.post("/reset-password")
-def reset_password(
-    data: ResetPasswordRequest,
-    db: Session = Depends(get_db),
-):
-    payload = decode_token(data.reset_token)
-    if not payload or payload.get("type") != "password_reset":
-        raise APIException(
-            status_code=400,
-            detail="الرابط غير صالح أو منتهي",
-            error_code="INVALID_TOKEN",
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="يجب تسجيل الدخول",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-
-    user = db.query(User).filter(User.id == payload.get("sub")).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-
-    if len(data.new_password) < 8:
-        raise APIException(
-            status_code=422,
-            detail="كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل",
-            error_code="VALIDATION_ERROR",
-        )
-
-    if not any(c.isdigit() for c in data.new_password):
-        raise APIException(
-            status_code=422,
-            detail="كلمة المرور الجديدة يجب أن تحتوي على رقم",
-            error_code="VALIDATION_ERROR",
-        )
-
-    user.hashed_password = hash_password(data.new_password)
-    db.commit()
-
-    # ألغِ جميع توكنات التحديث
-    db.query(RefreshToken).filter(
-        RefreshToken.user_id == user.id
-    ).update({"revoked": True})
-    db.commit()
-
-    return {"message": "تم تغيير كلمة المرور بنجاح"}
+    return user
